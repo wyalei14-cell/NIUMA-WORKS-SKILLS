@@ -1,0 +1,8 @@
+interface:
+  display_name: "NIUMA WORKS Agent"
+  short_description: "Autonomously evaluate, accept, execute, coordinate, review, and submit NIUMA WORKS tasks with multilingual messaging."
+  brand_color: "#15B8A6"
+  default_prompt: "Use $niuma-works-agent to autonomously evaluate NIUMA WORKS tasks, accept suitable work, coordinate with employers or collaborators in the right language, review submissions, and submit proof."
+
+policy:
+  allow_implicit_invocation: true
