@@ -208,7 +208,7 @@ def extract_claim(parent_task_id, submission):
     text = f"{submission.get('proofHash') or ''}\n{submission.get('metadata') or ''}"
     addresses = ADDRESS_RE.findall(text)
     task_numbers = []
-    for match in re.finditer(r"(?:任务\s*ID|task\s*id|#)\D{0,12}(\d+)", text, re.I):
+    for match in re.finditer(r"(?:任务\s*ID|任务号|任务|task\s*id|#)\D{0,12}(\d+)", text, re.I):
         value = match.group(1)
         if value:
             task_numbers.append(int(value))
@@ -228,9 +228,18 @@ def requires_completed_acceptance(parent_task):
         str(parent_task.get("requirements") or ""),
     ]).lower()
     completed_words = ("完成", "真实完成", "已完成", "completed", "done")
-    accepted_words = ("验收", "通过", "结算", "accepted", "approved", "paid", "settled")
+    accepted_words = ("验收", "通过", "accepted", "approved")
     return any(word in text for word in completed_words) and any(word in text for word in accepted_words)
 
+
+def requires_settled_reference(parent_task):
+    text = " ".join([
+        str(parent_task.get("title") or ""),
+        str(parent_task.get("description") or ""),
+        str(parent_task.get("requirements") or ""),
+    ]).lower()
+    settled_words = ("结束", "结算", "支付", "已支付", "任务结束", "settled", "paid", "ended", "closed")
+    return any(word in text for word in settled_words)
 
 def valid_task_shape(task, parent_task, participant):
     lang_text = parent_task.get("title") or parent_task.get("description") or parent_task.get("requirements") or ""
@@ -261,13 +270,21 @@ def valid_task_shape(task, parent_task, participant):
 
 
 def completed_with_acceptance(task, related_group):
+    if task["isRefunded"]:
+        return False
+    rows = [normalize_submission(row) for row in (related_group.get("submissions") or []) if isinstance(row, dict)]
+    if not rows:
+        return False
+    return any(row["isPaid"] or row["isApproved"] or str(row["status"]) in ("2", "7") for row in rows)
+
+
+def settled_with_acceptance(task, related_group):
     if task["status"] != 4 or task["completedAt"] <= 0 or task["isRefunded"]:
         return False
     rows = [normalize_submission(row) for row in (related_group.get("submissions") or []) if isinstance(row, dict)]
     if not rows:
         return task["currentParticipants"] > 0
     return any(row["isPaid"] or row["isApproved"] or str(row["status"]) in ("2", "7") for row in rows)
-
 
 def evaluate_submission(parent_task, parent_group, submission, related_cache):
     lang_text = parent_task.get("title") or parent_task.get("description") or parent_task.get("requirements") or ""
@@ -304,6 +321,8 @@ def evaluate_submission(parent_task, parent_group, submission, related_cache):
         if claimed_task:
             reasons.extend(valid_task_shape(claimed_task, parent_task, participant))
             if requires_completed_acceptance(parent_task) and not completed_with_acceptance(claimed_task, claimed_group):
+                reasons.append(msg("task_must_be_completed", lang_text))
+            if requires_settled_reference(parent_task) and not settled_with_acceptance(claimed_task, claimed_group):
                 reasons.append(msg("task_must_be_completed", lang_text))
 
     decision = "approve" if not reasons else "reject"
@@ -366,7 +385,7 @@ def settle_plan(task_id, parent_task, submissions, reviewer, execute):
             gaps.append(msg("wallet_mismatch", lang_text))
         if not claim["hasScreenshotEvidence"]:
             gaps.append(msg("missing_screenshot_evidence", lang_text))
-        if requires_completed_acceptance(parent_task):
+        if requires_settled_reference(parent_task):
             gaps.append(msg("approved_needs_completed_recheck", lang_text))
         if gaps:
             approved_claim_gaps.append({

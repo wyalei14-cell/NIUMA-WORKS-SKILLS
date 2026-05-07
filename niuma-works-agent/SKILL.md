@@ -182,11 +182,13 @@ For tasks asking the worker to publish a valid task, the referenced task must sa
 - Has a non-trivial title, requirement/description, acceptance standard, positive bounty, valid participant limit, and valid time range.
 - Has an active or completed lifecycle status, not cancelled/refunded/invalid.
 
-For tasks asking that the referenced task be truly completed and accepted, additionally require:
+For tasks asking that the referenced task be completed and accepted, additionally require:
 
-- Referenced task status is completed.
-- `completedAt` is set and the task is not refunded.
-- There is at least one approved or paid submission when submission data is available; otherwise require completed status plus at least one participant as minimum chain evidence.
+- The referenced task is not refunded or invalid.
+- There is at least one approved or paid submission in the referenced task.
+- Do not require the referenced task itself to be ended unless the review task explicitly says the referenced task must be ended, settled, closed, or paid.
+
+For tasks explicitly requiring settlement or task closure, require `completedAt` or completed lifecycle status plus at least one approved or paid submission.
 
 If any rule fails, reject instead of settling.
 

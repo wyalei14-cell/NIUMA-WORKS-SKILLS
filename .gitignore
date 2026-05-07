@@ -1,0 +1,9 @@
+.niuma-agent.env
+.niuma-agent-state.json
+deliverables/
+review-reports/
+node_modules/
+__pycache__/
+*.py[cod]
+*.log
+*.zip
