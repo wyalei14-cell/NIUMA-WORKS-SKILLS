@@ -128,10 +128,73 @@ def intish(value, default=0):
             return default
 
 
+def normalize_network(network=None):
+    raw = (network or os.environ.get("NIUMA_AGENT_NETWORK") or "xlayer-mainnet").strip().lower()
+    aliases = {
+        "xlayer": "xlayer-mainnet",
+        "mainnet": "xlayer-mainnet",
+        "production": "xlayer-mainnet",
+        "prod": "xlayer-mainnet",
+        "testnet": "xlayer-testnet",
+    }
+    return aliases.get(raw, raw)
+
+
+def is_mainnet(network=None):
+    return normalize_network(network) == "xlayer-mainnet"
+
+
+def signing_mode(network=None):
+    configured = os.environ.get("NIUMA_AGENT_SIGNER_MODE")
+    if configured:
+        return configured.strip().lower()
+    return "okx" if is_mainnet(network) else "private-key-test"
+
+
+def onchainos_chain(network=None):
+    configured = os.environ.get("NIUMA_ONCHAINOS_CHAIN")
+    if configured:
+        return configured.strip()
+    return "xlayer" if is_mainnet(network) else "xlayer-testnet"
+
+
+def run_command(cmd, timeout=180):
+    completed = subprocess.run(
+        cmd,
+        cwd=str(ROOT),
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+        timeout=timeout,
+    )
+    return {
+        "returncode": completed.returncode,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+        "cmd": cmd,
+    }
+
+
+def okx_wallet_address():
+    chain = onchainos_chain()
+    for cmd in (
+        ["onchainos", "wallet", "addresses", "--chain", chain],
+        ["onchainos", "wallet", "status"],
+    ):
+        result = run_command(cmd, timeout=30)
+        text = f"{result.get('stdout') or ''}\n{result.get('stderr') or ''}"
+        match = ADDRESS_RE.search(text)
+        if result.get("returncode") == 0 and match:
+            return match.group(0)
+    return None
+
+
 def signer_address():
     if os.environ.get("NIUMA_AGENT_WALLET"):
         return os.environ["NIUMA_AGENT_WALLET"]
-    if os.environ.get("NIUMA_AGENT_SIGNER_MODE") != "private-key-test":
+    if signing_mode() == "okx":
+        return okx_wallet_address()
+    if signing_mode() != "private-key-test":
         return None
     cmd = ["node", str(SKILL_DIR / "scripts" / "niuma_private_key_signer.mjs"), "address"]
     data = json.loads(subprocess.check_output(cmd, cwd=str(ROOT), text=True, encoding="utf-8"))
@@ -337,6 +400,82 @@ def evaluate_submission(parent_task, parent_group, submission, related_cache):
 
 
 def send_core_tx(action, task_id, data, dry_run):
+    mode = signing_mode()
+    if is_mainnet() and mode == "private-key-test":
+        return {
+            "ok": False,
+            "action": action,
+            "taskId": task_id,
+            "signerMode": mode,
+            "error": "private-key-test is disabled for X Layer mainnet; use OKX OnchainOS signing",
+        }
+    reviewer = signer_address()
+    if mode == "okx":
+        if not reviewer:
+            return {
+                "ok": False,
+                "action": action,
+                "taskId": task_id,
+                "signerMode": mode,
+                "error": "NIUMA_AGENT_WALLET or OKX OnchainOS wallet session is required",
+            }
+        if dry_run:
+            result = run_command([
+                "onchainos",
+                "gateway",
+                "simulate",
+                "--from",
+                reviewer,
+                "--to",
+                niuma_chain.CORE,
+                "--data",
+                data,
+                "--chain",
+                onchainos_chain(),
+            ])
+            return {
+                "ok": result["returncode"] == 0,
+                "dryRun": True,
+                "action": action,
+                "taskId": task_id,
+                "signerMode": mode,
+                "signer": reviewer,
+                "chain": onchainos_chain(),
+                "to": niuma_chain.CORE,
+                "data": data,
+                "result": result,
+            }
+        cmd = [
+            "onchainos",
+            "wallet",
+            "contract-call",
+            "--chain",
+            onchainos_chain(),
+            "--to",
+            niuma_chain.CORE,
+            "--input-data",
+            data,
+            "--amt",
+            "0",
+            "--from",
+            reviewer,
+        ]
+        if os.environ.get("NIUMA_AGENT_REVIEWER_AUTONOMOUS") == "1" or os.environ.get("NIUMA_ONCHAINOS_FORCE") == "1":
+            cmd.append("--force")
+        result = run_command(cmd)
+        return {
+            "ok": result["returncode"] == 0,
+            "dryRun": False,
+            "action": action,
+            "taskId": task_id,
+            "signerMode": mode,
+            "signer": reviewer,
+            "chain": onchainos_chain(),
+            "to": niuma_chain.CORE,
+            "data": data,
+            "result": result,
+        }
+
     cmd = [
         "node",
         str(SKILL_DIR / "scripts" / "niuma_private_key_signer.mjs"),

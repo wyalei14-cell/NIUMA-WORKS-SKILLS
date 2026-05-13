@@ -1,15 +1,65 @@
 #!/usr/bin/env python3
 import argparse
 import json
+import os
 import sys
 import urllib.request
 
 from Crypto.Hash import keccak
 
-RPC_URL = "https://testrpc.xlayer.tech/terigon"
-CORE = "0xcf52846E69a4772d5C9142d1487f4bb44d918cC5"
-USER_PROFILE = "0x3D105F9bC85ddA6Baf89D8eA4040ec45F0CF9B93"
-NIUMA_TOKEN = "0xad9e1ac142bb3c706c42a5bc4eceeb9364fd0939"
+NETWORK_CONFIGS = {
+    "xlayer-mainnet": {
+        "chainId": "196",
+        "onchainosChain": "xlayer",
+        "rpcUrl": "https://rpc.xlayer.tech",
+        "explorer": "https://www.oklink.com/xlayer",
+        "registry": "0x1f81E4e29DD58ffb8b97cC9BdF9d8e5aB41825B7",
+        "accessControl": "0xae5aA5C809A9D42d3d52BB0c1F32d60ca4b01055",
+        "tokenManager": "0xbb3034a2E3743F604F5d431e3C11520c76290233",
+        "userProfileCredit": "0x0B0Cf56C8E6Bdd4B7F3aAa61605e299AcF49987B",
+        "categoryManager": "0x0787810d9cf0F5Fc2C44aC2f490862Ba49b30DcA",
+        "referralSystem": "0xe151b580d48069fd331Be987e7a2Eb536FF6485c",
+        "core": "0x45e18236b1B851dC793932B0F285241A25A66813",
+        "bidding": "0xfE2dfBCaea35ac86D05573CF0e9A95d2A2777Ff2",
+        "helper": "0xc8647A699fbbcAce1fE0911f80d64fC0393881B7",
+        "submission": "0xaf82E4B683B296c953E1C0376786BeF41E07f216",
+        "queryHelper": "0xC644bfaDCD9f384e929Af02aDD741B2786765687",
+        "niumaToken": "0x87669801A1FaD6DAD9dB70d27Ac752f452989667",
+    },
+    "xlayer-testnet": {
+        "chainId": "0x7a0",
+        "onchainosChain": "xlayer-testnet",
+        "rpcUrl": "https://testrpc.xlayer.tech/terigon",
+        "explorer": "https://web3.oyuzh.co/explorer/xlayer-test",
+        "core": "0xcf52846E69a4772d5C9142d1487f4bb44d918cC5",
+        "userProfileCredit": "0x3D105F9bC85ddA6Baf89D8eA4040ec45F0CF9B93",
+        "niumaToken": "0xad9e1ac142bb3c706c42a5bc4eceeb9364fd0939",
+    },
+}
+
+NETWORK_ALIASES = {
+    "xlayer": "xlayer-mainnet",
+    "mainnet": "xlayer-mainnet",
+    "production": "xlayer-mainnet",
+    "prod": "xlayer-mainnet",
+    "testnet": "xlayer-testnet",
+}
+
+
+def normalize_network(value=None):
+    raw = (value or os.environ.get("NIUMA_AGENT_NETWORK") or "xlayer-mainnet").strip().lower()
+    return NETWORK_ALIASES.get(raw, raw)
+
+
+NETWORK = normalize_network()
+CONFIG = NETWORK_CONFIGS.get(NETWORK, NETWORK_CONFIGS["xlayer-mainnet"])
+CHAIN_ID = os.environ.get("NIUMA_CHAIN_ID", CONFIG["chainId"])
+ONCHAINOS_CHAIN = os.environ.get("NIUMA_ONCHAINOS_CHAIN", CONFIG["onchainosChain"])
+RPC_URL = os.environ.get("NIUMA_RPC_URL", CONFIG["rpcUrl"])
+EXPLORER = os.environ.get("NIUMA_EXPLORER", CONFIG["explorer"])
+CORE = os.environ.get("NIUMA_CORE", CONFIG["core"])
+USER_PROFILE = os.environ.get("NIUMA_USER_PROFILE", CONFIG["userProfileCredit"])
+NIUMA_TOKEN = os.environ.get("NIUMA_TOKEN", CONFIG["niumaToken"])
 ZERO = "0x0000000000000000000000000000000000000000"
 
 if hasattr(sys.stdout, "reconfigure"):

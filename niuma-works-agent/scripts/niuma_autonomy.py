@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -48,7 +49,7 @@ def load_env_file():
 
 load_env_file()
 
-DEFAULT_NETWORK = os.environ.get("NIUMA_AGENT_NETWORK", "xlayer-testnet").strip().lower()
+DEFAULT_NETWORK = os.environ.get("NIUMA_AGENT_NETWORK", "xlayer-mainnet").strip().lower()
 DEFAULT_LANGUAGE = os.environ.get("NIUMA_AGENT_LANGUAGE", os.environ.get("NIUMA_AGENT_LOCALE", "auto")).strip()
 
 
@@ -137,6 +138,27 @@ def is_mainnet(network=None):
     return normalize_network(network) in {"xlayer", "xlayer-mainnet", "mainnet", "production", "prod"}
 
 
+def onchainos_chain(network=None):
+    configured = os.environ.get("NIUMA_ONCHAINOS_CHAIN")
+    if configured:
+        return configured.strip()
+    return "xlayer" if is_mainnet(network) else "xlayer-testnet"
+
+
+def okx_wallet_address(network=None):
+    chain = onchainos_chain(network)
+    for cmd in (
+        ["onchainos", "wallet", "addresses", "--chain", chain],
+        ["onchainos", "wallet", "status"],
+    ):
+        result = run(cmd, timeout=30)
+        text = f"{result.get('stdout') or ''}\n{result.get('stderr') or ''}"
+        match = re.search(r"0x[a-fA-F0-9]{40}", text)
+        if result.get("returncode") == 0 and match:
+            return match.group(0)
+    return None
+
+
 def wallet_setup_status(wallet=None, network=None):
     network = normalize_network(network)
     mode = signing_mode(network)
@@ -214,6 +236,7 @@ def write_wallet_env_template(network):
         lines = [
             "NIUMA_AGENT_NETWORK=xlayer-mainnet",
             "NIUMA_AGENT_SIGNER_MODE=okx",
+            "NIUMA_ONCHAINOS_CHAIN=xlayer",
             "NIUMA_AGENT_WALLET=0xYOUR_OKX_AGENTIC_WALLET_ADDRESS",
             "NIUMA_AGENT_AUTONOMOUS=0",
             "NIUMA_AGENT_MAX_TASK_REWARD=0",
@@ -624,11 +647,16 @@ def collaboration_plan(task, evaluation):
 
 
 def simulate_with_okx(wallet, to, data):
-    return run(["onchainos", "gateway", "simulate", "--from", wallet, "--to", to, "--data", data, "--chain", "xlayer"])
+    return run(["onchainos", "gateway", "simulate", "--from", wallet, "--to", to, "--data", data, "--chain", onchainos_chain()])
 
 
-def contract_call_with_okx(to, data):
-    return run(["onchainos", "wallet", "contract-call", "--chain", "xlayer", "--to", to, "--input-data", data, "--amt", "0"])
+def contract_call_with_okx(to, data, wallet=None):
+    cmd = ["onchainos", "wallet", "contract-call", "--chain", onchainos_chain(), "--to", to, "--input-data", data, "--amt", "0"]
+    if wallet:
+        cmd.extend(["--from", wallet])
+    if is_autonomous() or os.environ.get("NIUMA_ONCHAINOS_FORCE") == "1":
+        cmd.append("--force")
+    return run(cmd)
 
 
 def contract_call_with_private_key(to, data, task_id, action="accept"):
@@ -677,7 +705,7 @@ def maybe_auto_stake(wallet, task_id, target_stake=None):
         if signing_mode() == "private-key-test":
             approve_tx = contract_call_with_private_key(niuma_chain.NIUMA_TOKEN, diag["approveCalldata"], task_id)
         else:
-            approve_tx = contract_call_with_okx(niuma_chain.NIUMA_TOKEN, diag["approveCalldata"])
+            approve_tx = contract_call_with_okx(niuma_chain.NIUMA_TOKEN, diag["approveCalldata"], wallet)
         output["approveTx"] = approve_tx
         if approve_tx["returncode"] != 0:
             output["reason"] = "approval transaction failed"
@@ -690,7 +718,7 @@ def maybe_auto_stake(wallet, task_id, target_stake=None):
     if signing_mode() == "private-key-test":
         tx = contract_call_with_private_key(niuma_chain.USER_PROFILE, diag["stakeCalldata"], task_id)
     else:
-        tx = contract_call_with_okx(niuma_chain.USER_PROFILE, diag["stakeCalldata"])
+        tx = contract_call_with_okx(niuma_chain.USER_PROFILE, diag["stakeCalldata"], wallet)
     output["stakeTx"] = tx
     output["wrote"] = tx["returncode"] == 0
     return output
@@ -735,7 +763,7 @@ def accept_task(state, wallet, chain_task):
     if signing_mode() == "private-key-test":
         tx = contract_call_with_private_key(CORE, data, task_id)
     else:
-        tx = contract_call_with_okx(CORE, data)
+        tx = contract_call_with_okx(CORE, data, wallet)
     result["signerMode"] = signing_mode()
     result["contractCall"] = tx
     result["wrote"] = tx["returncode"] == 0
@@ -759,7 +787,7 @@ def submit_task(wallet, task_id, proof, metadata):
     if signing_mode() == "private-key-test":
         tx = contract_call_with_private_key(CORE, data, task_id, action="accept")
     else:
-        tx = contract_call_with_okx(CORE, data)
+        tx = contract_call_with_okx(CORE, data, wallet)
     result["signerMode"] = signing_mode()
     result["contractCall"] = tx
     result["wrote"] = tx["returncode"] == 0
@@ -1028,6 +1056,10 @@ def main():
         if not wallet and signing_mode() == "private-key-test":
             if os.environ.get("NIUMA_AGENT_PRIVATE_KEY"):
                 wallet = derive_wallet_from_private_key()
+        if not wallet and signing_mode() == "okx":
+            wallet = okx_wallet_address()
+            if wallet:
+                os.environ["NIUMA_AGENT_WALLET"] = wallet
         if not wallet:
             print(json.dumps({
                 "status": "setup_required",

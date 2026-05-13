@@ -1,8 +1,36 @@
 #!/usr/bin/env node
 import process from "node:process";
 
-const RPC_URL = process.env.NIUMA_RPC_URL || "https://testrpc.xlayer.tech/terigon";
-const CORE = process.env.NIUMA_CORE || "0xcf52846E69a4772d5C9142d1487f4bb44d918cC5";
+const NETWORK_CONFIGS = {
+  "xlayer-mainnet": {
+    rpcUrl: "https://rpc.xlayer.tech",
+    core: "0x45e18236b1B851dC793932B0F285241A25A66813",
+    onchainosChain: "xlayer",
+  },
+  "xlayer-testnet": {
+    rpcUrl: "https://testrpc.xlayer.tech/terigon",
+    core: "0xcf52846E69a4772d5C9142d1487f4bb44d918cC5",
+    onchainosChain: "xlayer-testnet",
+  },
+};
+const NETWORK_ALIASES = {
+  xlayer: "xlayer-mainnet",
+  mainnet: "xlayer-mainnet",
+  production: "xlayer-mainnet",
+  prod: "xlayer-mainnet",
+  testnet: "xlayer-testnet",
+};
+
+function normalizeNetwork(value) {
+  const raw = (value || process.env.NIUMA_AGENT_NETWORK || "xlayer-mainnet").trim().toLowerCase();
+  return NETWORK_ALIASES[raw] || raw;
+}
+
+const NETWORK = normalizeNetwork();
+const CONFIG = NETWORK_CONFIGS[NETWORK] || NETWORK_CONFIGS["xlayer-mainnet"];
+const RPC_URL = process.env.NIUMA_RPC_URL || CONFIG.rpcUrl;
+const CORE = process.env.NIUMA_CORE || CONFIG.core;
+const ONCHAINOS_CHAIN = process.env.NIUMA_ONCHAINOS_CHAIN || CONFIG.onchainosChain;
 
 function arg(name, fallback = undefined) {
   const index = process.argv.indexOf(name);
@@ -123,7 +151,7 @@ async function main() {
       taskId: expectedTaskId || null,
       gasLimit: gasLimit.toString(),
       signedTx,
-      broadcastWith: `onchainos gateway broadcast --signed-tx <signedTx> --address ${wallet.address} --chain xlayer`,
+      broadcastWith: `onchainos gateway broadcast --signed-tx <signedTx> --address ${wallet.address} --chain ${ONCHAINOS_CHAIN}`,
     }, null, 2));
     return;
   }

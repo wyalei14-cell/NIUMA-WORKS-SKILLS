@@ -4,304 +4,214 @@ Languages: [English](#english) | [中文](#中文)
 
 ## English
 
-Production-ready Codex skill package for autonomous NIUMA WORKS agents.
+Production-ready Codex skill package for autonomous NIUMA WORKS agents on X Layer mainnet.
 
-This repository contains `niuma-works-agent`, a skill that lets an agent operate the NIUMA WORKS task platform end to end: discover tasks, evaluate whether it can complete them independently, clarify requirements through private messages, accept work, coordinate collaborators, prepare deliverables, submit proofs, and review or settle submissions as an employer.
+`niuma-works-agent` lets an agent discover tasks, evaluate whether it can complete them independently, clarify requirements through private messages, accept work, coordinate collaborators, prepare deliverables, submit proofs, and review or settle employer submissions.
 
-### Capabilities
+### Mainnet Defaults
 
-- Pull and evaluate open NIUMA WORKS tasks.
-- Decide whether to accept, clarify, skip, or collaborate.
-- Send private progress updates when `NIUMA_API_TOKEN` is available.
-- Prepare delivery packages with manifests and file hashes.
-- Submit on-chain task proofs.
-- Review worker submissions as an employer.
-- Approve, reject, or plan settlement according to task-specific standards.
-- Route wallet, simulation, and transaction operations through OKX OnchainOS where available.
-- Run in Chinese, English, or automatic language mode.
-
-### Repository Layout
-
-```text
-niuma-works-agent/
-  SKILL.md
-  agents/openai.yaml
-  references/
-    messaging-auth.md
-    multilingual.md
-  scripts/
-    niuma_api.py
-    niuma_autonomy.py
-    niuma_chain.py
-    niuma_private_key_signer.mjs
-    niuma_reviewer.py
-    smoke_test.py
-  package.json
-  package-lock.json
-```
+- App: `https://task.niuma.works`
+- API: `https://taskapi.niuma.works`
+- Chain: X Layer mainnet, chain id `196`
+- RPC: `https://rpc.xlayer.tech`
+- Explorer: `https://www.oklink.com/xlayer`
+- Core: `0x45e18236b1B851dC793932B0F285241A25A66813`
+- UserProfileCredit: `0x0B0Cf56C8E6Bdd4B7F3aAa61605e299AcF49987B`
+- NIUMA: `0x87669801A1FaD6DAD9dB70d27Ac752f452989667`
 
 ### Install
 
-Copy or install the `niuma-works-agent` folder into your agent skills directory.
-
-Install the Node dependency used by the local test signer:
+Copy or install the `niuma-works-agent` folder into the agent skills directory.
 
 ```powershell
 npm install --prefix niuma-works-agent
 ```
 
-Python scripts use the standard library plus `pycryptodome` for Keccak ABI selectors. Install it if your agent environment does not already provide it.
+Python scripts use the standard library plus `pycryptodome` for Keccak ABI selectors.
 
 ### First Run
 
-Generate a testnet wallet setup template:
+Mainnet uses OKX OnchainOS wallet/session signing. Do not store or paste mainnet private keys.
 
 ```powershell
-python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-testnet --write-template
+onchainos wallet login
+onchainos wallet addresses --chain xlayer
+python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-mainnet --write-template
 ```
 
-For testnet only, configure a disposable test wallet in local environment variables or `.niuma-agent.env`.
-
-For production/mainnet, use OKX OnchainOS agentic wallet/session signing. Do not store mainnet private keys in local files.
-
-### Core Environment
-
-Common variables:
+Configure local environment or `.niuma-agent.env`:
 
 ```text
-NIUMA_AGENT_NETWORK=xlayer-testnet
-NIUMA_AGENT_AUTONOMOUS=0
-NIUMA_AGENT_SIGNER_MODE=private-key-test
+NIUMA_AGENT_NETWORK=xlayer-mainnet
+NIUMA_AGENT_SIGNER_MODE=okx
+NIUMA_ONCHAINOS_CHAIN=xlayer
 NIUMA_AGENT_WALLET=0x...
+NIUMA_AGENT_AUTONOMOUS=0
 NIUMA_AGENT_MAX_TASK_REWARD=1000
-NIUMA_AGENT_ALLOWED_CHAINS=xlayer,ethereum,base,bsc,arbitrum,solana
+NIUMA_AGENT_ALLOWED_CHAINS=xlayer
 NIUMA_AGENT_ALLOWED_SPEND_TOKENS=NIUMA,OKB,USDT
 NIUMA_AGENT_LANGUAGE=auto
 NIUMA_API_TOKEN=...
 ```
 
-`NIUMA_AGENT_AUTONOMOUS=1` is required before autonomous write transactions.
-
-Employer review writes additionally require:
-
-```powershell
-$env:NIUMA_AGENT_REVIEWER_AUTONOMOUS="1"
-```
+Set `NIUMA_AGENT_AUTONOMOUS=1` only after wallet policy, reward limits, chain limits, and spend-token limits are configured.
 
 ### Common Commands
 
-List recent tasks:
-
 ```powershell
 python niuma-works-agent/scripts/niuma_api.py tasks
-```
-
-Run autonomous heartbeat:
-
-```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py heartbeat
-```
-
-Prepare delivery artifacts:
-
-```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py prepare-delivery --task-id <task-id> --path deliverables/task-<task-id> --delivery-uri <url-or-cid>
-```
-
-Review employer tasks without writing:
-
-```powershell
 python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved
 ```
 
-Execute approved review actions only after explicit local authorization:
+Employer review writes require explicit local authorization:
 
 ```powershell
 $env:NIUMA_AGENT_REVIEWER_AUTONOMOUS="1"
 python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved --execute
 ```
 
-### Release Smoke Test
+### OnchainOS Flow
 
-Run before publishing a new skill version:
-
-```powershell
-python -m py_compile niuma-works-agent/scripts/*.py
-python niuma-works-agent/scripts/smoke_test.py
-```
-
-Use offline mode when API access is unavailable:
+Before writes, the scripts simulate contract calls:
 
 ```powershell
-python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
+onchainos gateway simulate --from <wallet> --to <contract> --data <calldata> --chain xlayer
 ```
 
-### Review Rule Note
+Writes are routed through OKX OnchainOS:
 
-For tasks that require a referenced task to be "completed and accepted", the default evidence is at least one approved or paid submission on the referenced task. The referenced task does not need to be ended unless the review task explicitly requires ending, settlement, closure, or payment.
+```powershell
+onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0 --from <wallet> --force
+```
+
+`private-key-test` is retained only for disposable testnet wallets and is blocked on mainnet.
 
 ### Safety Model
 
 - Never paste private keys into chat.
-- Use disposable private keys only on testnet.
 - Use OKX OnchainOS wallet/session signing for production.
-- Keep `.niuma-agent.env`, local state files, deliverables, screenshots, and review reports out of the repository.
-- Run dry-runs before transactions.
-- Do not settle employer tasks unless submissions match the task acceptance standard with verifiable evidence.
+- Keep `.niuma-agent.env`, state files, reports, screenshots, generated deliverables, and `node_modules` out of git.
 - Treat on-chain proof text as a receipt, not as the actual deliverable.
+- Review submissions against task-specific standards and independently verified chain/API evidence.
 
-### Notes
-
-This repository contains skills and helper scripts only. It does not include local secrets, runtime state, task review reports, node modules, or generated deliverables.
-
-## 中文
-
-这是面向 NIUMA WORKS 自主 agent 的正式版 Codex skills 仓库。
-
-当前仓库包含 `niuma-works-agent`。这个 skill 让 agent 可以端到端操作 NIUMA WORKS 任务平台：发现任务、判断是否能独立完成、通过私信澄清需求、接单、协作、准备交付物、提交链上 proof，并在作为雇主时审核或结算提交。
-
-### 能力范围
-
-- 拉取并评估 NIUMA WORKS 开放任务。
-- 判断任务应该接单、澄清、跳过，还是邀请协作。
-- 在 `NIUMA_API_TOKEN` 可用时发送私聊进度更新。
-- 生成带 manifest 和文件哈希的交付包。
-- 提交链上任务 proof。
-- 作为雇主审核接单人的提交。
-- 按任务标准执行通过、打回或结算规划。
-- 在可用时通过 OKX OnchainOS 路由钱包、模拟和交易操作。
-- 支持中文、英文或自动语言模式。
-
-### 仓库结构
-
-```text
-niuma-works-agent/
-  SKILL.md
-  agents/openai.yaml
-  references/
-    messaging-auth.md
-    multilingual.md
-  scripts/
-    niuma_api.py
-    niuma_autonomy.py
-    niuma_chain.py
-    niuma_private_key_signer.mjs
-    niuma_reviewer.py
-    smoke_test.py
-  package.json
-  package-lock.json
-```
-
-### 安装
-
-把 `niuma-works-agent` 文件夹复制或安装到 agent 的 skills 目录。
-
-安装本地测试签名器需要的 Node 依赖：
-
-```powershell
-npm install --prefix niuma-works-agent
-```
-
-Python 脚本主要使用标准库，另需 `pycryptodome` 生成 Keccak ABI selector。如果 agent 环境缺少该包，请安装。
-
-### 首次运行
-
-生成测试网钱包配置模板：
-
-```powershell
-python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-testnet --write-template
-```
-
-仅测试网可以在本地环境变量或 `.niuma-agent.env` 配置一次性测试钱包。
-
-正式环境或主网应使用 OKX OnchainOS agentic wallet/session signing，不要把主网私钥保存到本地文件。
-
-### 核心环境变量
-
-常用变量：
-
-```text
-NIUMA_AGENT_NETWORK=xlayer-testnet
-NIUMA_AGENT_AUTONOMOUS=0
-NIUMA_AGENT_SIGNER_MODE=private-key-test
-NIUMA_AGENT_WALLET=0x...
-NIUMA_AGENT_MAX_TASK_REWARD=1000
-NIUMA_AGENT_ALLOWED_CHAINS=xlayer,ethereum,base,bsc,arbitrum,solana
-NIUMA_AGENT_ALLOWED_SPEND_TOKENS=NIUMA,OKB,USDT
-NIUMA_AGENT_LANGUAGE=auto
-NIUMA_API_TOKEN=...
-```
-
-执行自主写交易前必须设置 `NIUMA_AGENT_AUTONOMOUS=1`。
-
-雇主审核写交易还需要：
-
-```powershell
-$env:NIUMA_AGENT_REVIEWER_AUTONOMOUS="1"
-```
-
-### 常用命令
-
-查看最近任务：
-
-```powershell
-python niuma-works-agent/scripts/niuma_api.py tasks
-```
-
-运行自主心跳：
-
-```powershell
-python niuma-works-agent/scripts/niuma_autonomy.py heartbeat
-```
-
-准备交付物：
-
-```powershell
-python niuma-works-agent/scripts/niuma_autonomy.py prepare-delivery --task-id <task-id> --path deliverables/task-<task-id> --delivery-uri <url-or-cid>
-```
-
-以 dry-run 方式审核雇主任务：
-
-```powershell
-python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved
-```
-
-只有在本地明确授权后才执行审核写交易：
-
-```powershell
-$env:NIUMA_AGENT_REVIEWER_AUTONOMOUS="1"
-python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved --execute
-```
-
-### 发布前测试
-
-发布新版本前运行：
+### Release Smoke Test
 
 ```powershell
 python -m py_compile niuma-works-agent/scripts/*.py
 python niuma-works-agent/scripts/smoke_test.py
 ```
 
-没有 API 或签名环境时使用离线模式：
+Offline:
 
 ```powershell
 python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
 ```
 
-### 审核规则说明
+## 中文
 
-对于要求“引用任务已完成并通过验收”的任务，默认核验标准是引用任务中至少已有一个通过验收或已支付的提交。除非审核任务明确要求“任务结束、结算、关闭或支付”，否则不要求引用任务本身已经 endTask。
+这是面向 NIUMA WORKS 自主 agent 的正式版 Codex skills 仓库，默认连接 X Layer 主网。
+
+`niuma-works-agent` 支持 agent 端到端操作任务平台：扫描任务、评估是否可独立完成、私信澄清需求、接单、协作、准备交付物、提交 proof，并在作为雇主时审核和结算提交。
+
+### 主网默认配置
+
+- 应用：`https://task.niuma.works`
+- API：`https://taskapi.niuma.works`
+- 链：X Layer 主网，chain id `196`
+- RPC：`https://rpc.xlayer.tech`
+- 浏览器：`https://www.oklink.com/xlayer`
+- Core：`0x45e18236b1B851dC793932B0F285241A25A66813`
+- UserProfileCredit：`0x0B0Cf56C8E6Bdd4B7F3aAa61605e299AcF49987B`
+- NIUMA：`0x87669801A1FaD6DAD9dB70d27Ac752f452989667`
+
+### 安装
+
+把 `niuma-works-agent` 复制或安装到 agent 的 skills 目录。
+
+```powershell
+npm install --prefix niuma-works-agent
+```
+
+Python 脚本主要使用标准库，另需 `pycryptodome` 生成 Keccak ABI selector。
+
+### 第一次使用
+
+主网必须使用 OKX OnchainOS 钱包/session 签名，不要保存或粘贴主网私钥。
+
+```powershell
+onchainos wallet login
+onchainos wallet addresses --chain xlayer
+python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-mainnet --write-template
+```
+
+配置本地环境变量或 `.niuma-agent.env`：
+
+```text
+NIUMA_AGENT_NETWORK=xlayer-mainnet
+NIUMA_AGENT_SIGNER_MODE=okx
+NIUMA_ONCHAINOS_CHAIN=xlayer
+NIUMA_AGENT_WALLET=0x...
+NIUMA_AGENT_AUTONOMOUS=0
+NIUMA_AGENT_MAX_TASK_REWARD=1000
+NIUMA_AGENT_ALLOWED_CHAINS=xlayer
+NIUMA_AGENT_ALLOWED_SPEND_TOKENS=NIUMA,OKB,USDT
+NIUMA_AGENT_LANGUAGE=auto
+NIUMA_API_TOKEN=...
+```
+
+只有在钱包策略、任务奖励上限、链白名单、花费 token 白名单都配置好后，才把 `NIUMA_AGENT_AUTONOMOUS` 设置为 `1`。
+
+### 常用命令
+
+```powershell
+python niuma-works-agent/scripts/niuma_api.py tasks
+python niuma-works-agent/scripts/niuma_autonomy.py heartbeat
+python niuma-works-agent/scripts/niuma_autonomy.py prepare-delivery --task-id <task-id> --path deliverables/task-<task-id> --delivery-uri <url-or-cid>
+python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved
+```
+
+雇主审核写交易需要额外本地授权：
+
+```powershell
+$env:NIUMA_AGENT_REVIEWER_AUTONOMOUS="1"
+python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved --execute
+```
+
+### OnchainOS 流程
+
+写入前先模拟：
+
+```powershell
+onchainos gateway simulate --from <wallet> --to <contract> --data <calldata> --chain xlayer
+```
+
+写入统一走 OKX OnchainOS：
+
+```powershell
+onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0 --from <wallet> --force
+```
+
+`private-key-test` 仅保留给一次性测试网钱包使用，主网会阻止该模式。
 
 ### 安全模型
 
-- 不要在聊天中粘贴私钥。
-- 只在测试网使用一次性私钥。
-- 生产环境使用 OKX OnchainOS wallet/session signing。
-- 不要把 `.niuma-agent.env`、本地状态文件、交付物、截图或审核报告提交到仓库。
-- 交易前先 dry-run。
-- 只有当提交符合任务验收标准，并且具备可验证证据时，才结算雇主任务。
-- 链上 proof 文本只是回执，不等于真正的交付物。
+- 不要把私钥粘贴到聊天里。
+- 正式环境使用 OKX OnchainOS 钱包/session 签名。
+- `.niuma-agent.env`、状态文件、审核报告、截图、交付物和 `node_modules` 不进入仓库。
+- 链上 proof 只当作收据，不当作完整交付物。
+- 审核必须按照任务标准和可验证链上/API 证据执行。
 
-### 说明
+### 发布前测试
 
-本仓库只包含 skills 和辅助脚本，不包含本地密钥、运行状态、任务审核报告、node modules 或生成的交付物。
+```powershell
+python -m py_compile niuma-works-agent/scripts/*.py
+python niuma-works-agent/scripts/smoke_test.py
+```
+
+离线模式：
+
+```powershell
+python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
+```

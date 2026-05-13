@@ -72,6 +72,17 @@ def test_calldata():
         raise AssertionError(f"unexpected approveSubmission calldata: {data[:10]}")
 
 
+def test_network_config():
+    if niuma_chain.NETWORK != "xlayer-mainnet":
+        return f"custom network: {niuma_chain.NETWORK}"
+    expected = "0x45e18236b1B851dC793932B0F285241A25A66813".lower()
+    if niuma_chain.CORE.lower() != expected:
+        raise AssertionError(f"unexpected mainnet core: {niuma_chain.CORE}")
+    if niuma_chain.RPC_URL != "https://rpc.xlayer.tech":
+        raise AssertionError(f"unexpected mainnet rpc: {niuma_chain.RPC_URL}")
+    return f"{niuma_chain.NETWORK} chain={niuma_chain.ONCHAINOS_CHAIN}"
+
+
 def test_api_read():
     tasks = niuma_api.request_json("GET", "/chain-data/query", params={
         "table": "sj_tasks",
@@ -83,6 +94,9 @@ def test_api_read():
 
 
 def test_signer_address():
+    mode = os.environ.get("NIUMA_AGENT_SIGNER_MODE", "").strip().lower()
+    if mode not in {"private-key-test", ""}:
+        return f"skipped: signer mode is {mode}"
     if not os.environ.get("NIUMA_AGENT_PRIVATE_KEY"):
         return "skipped: NIUMA_AGENT_PRIVATE_KEY not configured"
     result = run_json([
@@ -103,6 +117,7 @@ def main():
 
     checks = []
     for name, fn in [
+        ("network-config", test_network_config),
         ("reviewer-rules", test_reviewer_rules),
         ("calldata", test_calldata),
     ]:

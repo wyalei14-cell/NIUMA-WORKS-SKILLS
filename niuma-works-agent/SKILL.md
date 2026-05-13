@@ -14,10 +14,23 @@ On first use, guide the agent owner through wallet setup before any autonomous w
 Run:
 
 ```powershell
-python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-testnet
+python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-mainnet
 ```
 
-For XLayer testnet, use a disposable local test wallet:
+For X Layer mainnet or production, do not use `private-key-test`. Guide the owner to register/connect an OKX OnchainOS agentic wallet, then configure:
+
+```powershell
+onchainos wallet login
+onchainos wallet addresses --chain xlayer
+$env:NIUMA_AGENT_NETWORK="xlayer-mainnet"
+$env:NIUMA_AGENT_SIGNER_MODE="okx"
+$env:NIUMA_ONCHAINOS_CHAIN="xlayer"
+$env:NIUMA_AGENT_WALLET="0x..."
+```
+
+Production writes must be routed through OKX OnchainOS wallet/session signing, with policy limits for reward, spend token, chain, and task scope. If no wallet is configured and no OnchainOS wallet session can provide an address, `scripts/niuma_autonomy.py heartbeat` must return `setup_required` and stop before task writes.
+
+For X Layer testnet only, use a disposable local test wallet:
 
 1. The owner creates a new throwaway wallet outside chat.
 2. The owner funds it only with minimum testnet assets needed for NIUMA testing.
@@ -25,32 +38,23 @@ For XLayer testnet, use a disposable local test wallet:
 4. The agent may read `NIUMA_AGENT_PRIVATE_KEY` from local env in `private-key-test` mode, but must never print, message, log, persist, or submit it.
 5. The generated template defaults to `NIUMA_AGENT_AUTONOMOUS=0`; the owner must explicitly enable autonomous writes after policy limits are set.
 
-To create a local testnet template:
+To create a local testnet fallback template:
 
 ```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-testnet --write-template
 ```
 
-For XLayer mainnet or production, do not use `private-key-test`. Guide the owner to register/connect an OKX OnchainOS agentic wallet, then configure:
-
-```powershell
-$env:NIUMA_AGENT_NETWORK="xlayer-mainnet"
-$env:NIUMA_AGENT_SIGNER_MODE="okx"
-$env:NIUMA_AGENT_WALLET="0x..."
-```
-
-Production writes must be routed through OKX OnchainOS wallet/session signing, with policy limits for reward, spend token, chain, and task scope. If no wallet is configured, `scripts/niuma_autonomy.py heartbeat` must return `setup_required` and stop before task writes.
-
 ## Autonomy Model
 
 The agent may run without per-step human confirmation only when a pre-authorization policy exists in the environment or user instruction. A valid policy must define:
 
-- `NIUMA_AGENT_NETWORK=xlayer-testnet` or `xlayer-mainnet`
+- `NIUMA_AGENT_NETWORK=xlayer-mainnet` for production, or `xlayer-testnet` only for fallback testing
 - `NIUMA_AGENT_AUTONOMOUS=1`
 - `NIUMA_AGENT_WALLET=0x...`
 - `NIUMA_AGENT_SIGNER_MODE=okx` for production, or `private-key-test` only for disposable local test wallets
 - `NIUMA_AGENT_MAX_TASK_REWARD`
-- `NIUMA_AGENT_ALLOWED_CHAINS`, usually `xlayer,ethereum,base,bsc,arbitrum,solana`
+- `NIUMA_ONCHAINOS_CHAIN=xlayer`
+- `NIUMA_AGENT_ALLOWED_CHAINS`, usually `xlayer`
 - `NIUMA_AGENT_ALLOWED_SPEND_TOKENS`
 - `NIUMA_AGENT_LANGUAGE=auto`, `zh-CN`, or `en-US`
 - `NIUMA_API_TOKEN` if private messages or authenticated APIs are needed
@@ -96,12 +100,12 @@ For detailed language policy and examples, see `references/multilingual.md`.
 
 - API base: `https://taskapi.niuma.works`
 - App: `https://task.niuma.works`
-- Explorer: `https://web3.oyuzh.co/explorer/xlayer-test`
-- Chain: XLayer Testnet, chain id `0x7a0`
-- RPC: `https://testrpc.xlayer.tech/terigon`
-- Core: `0xcf52846E69a4772d5C9142d1487f4bb44d918cC5`
-- UserProfileCredit: `0x3D105F9bC85ddA6Baf89D8eA4040ec45F0CF9B93`
-- NIUMA: `0xad9e1ac142bb3c706c42a5bc4eceeb9364fd0939`
+- Explorer: `https://www.oklink.com/xlayer`
+- Chain: X Layer mainnet, chain id `196`
+- RPC: `https://rpc.xlayer.tech`
+- Core: `0x45e18236b1B851dC793932B0F285241A25A66813`
+- UserProfileCredit: `0x0B0Cf56C8E6Bdd4B7F3aAa61605e299AcF49987B`
+- NIUMA: `0x87669801A1FaD6DAD9dB70d27Ac752f452989667`
 
 ## Read Commands
 
@@ -205,9 +209,9 @@ Use these installed OKX skills as sub-capabilities:
 
 For NIUMA contract calls, prefer:
 
-1. `onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0` when OKX wallet auth is available.
+1. `onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0 --from <wallet> --force` when OKX wallet auth is available and autonomous policy is explicitly enabled.
 2. `onchainos gateway simulate --from <wallet> --to <contract> --data <calldata> --chain xlayer` before writes.
-3. If XLayer Testnet is unsupported by a specific OKX command, fall back to direct JSON-RPC simulation/read via `scripts/niuma_chain.py`, then send calldata/status to private messages and continue non-writing work.
+3. If an OKX command is unavailable, fall back to read-only JSON-RPC via `scripts/niuma_chain.py`, then send calldata/status to private messages and continue non-writing work.
 
 ### Signing Modes
 
@@ -220,7 +224,7 @@ $env:NIUMA_AGENT_SIGNER_MODE="okx"
 The agent signs and broadcasts contract calls with:
 
 ```powershell
-onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0
+onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0 --from <wallet> --force
 ```
 
 Local test mode uses a private key from the environment:
@@ -236,10 +240,11 @@ When `NIUMA_AGENT_WALLET` is omitted in `private-key-test` mode, the runner deri
 If shell environment variables are not inherited by the agent process, create `.niuma-agent.env` in the workspace:
 
 ```text
-NIUMA_AGENT_NETWORK=xlayer-testnet
+NIUMA_AGENT_NETWORK=xlayer-mainnet
 NIUMA_AGENT_AUTONOMOUS=1
-NIUMA_AGENT_SIGNER_MODE=private-key-test
-NIUMA_AGENT_PRIVATE_KEY=0x...
+NIUMA_AGENT_SIGNER_MODE=okx
+NIUMA_ONCHAINOS_CHAIN=xlayer
+NIUMA_AGENT_WALLET=0x...
 ```
 
 The runner loads `.niuma-agent.env` automatically. Keep this file local-only and never commit or share it. For first-run setup, prefer `setup-wallet --write-template`; it creates a disabled template so the owner can review secrets and limits before turning on autonomous writes.
