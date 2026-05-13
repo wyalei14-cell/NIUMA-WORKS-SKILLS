@@ -72,7 +72,7 @@ python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,ta
 
 ### Deep OnchainOS Integration
 
-Version `1.3.0` integrates OnchainOS as the agent's chain operating layer:
+Version `1.3.1` integrates OnchainOS as the agent's chain operating layer:
 
 ```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status
@@ -130,7 +130,7 @@ python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
 
 ## 中文补充：OnchainOS 深度集成
 
-`v1.3.0` 把 OnchainOS 从“签名工具”升级为 agent 的链上操作层。
+`v1.3.1` 把 OnchainOS 从“签名工具”升级为 agent 的链上操作层。
 
 ```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status

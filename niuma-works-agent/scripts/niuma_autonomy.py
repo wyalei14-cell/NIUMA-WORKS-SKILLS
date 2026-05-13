@@ -549,13 +549,18 @@ def choose_task(tasks):
     return eligible[0][1], [ev for ev, _ in evaluated]
 
 
+def compact_text(value, limit=1200):
+    text = str(value or "")
+    return text if len(text) <= limit else text[:limit] + "...[truncated]"
+
+
 def outbox(state, peer, task_id, content, reason="NIUMA_API_TOKEN missing or unusable"):
     item = {
         "time": int(time.time()),
         "to": peer,
         "taskId": int(task_id),
         "content": content,
-        "reason": reason,
+        "reason": compact_text(reason),
     }
     state.setdefault("outbox", []).append(item)
     return {"sent": False, "reason": reason, "outboxItem": item}
@@ -1090,6 +1095,11 @@ def complete_task_once(wallet, task_id, proof="", metadata="", inviter="", execu
     if execute:
         os.environ["NIUMA_AGENT_AUTONOMOUS"] = "1"
         os.environ.setdefault("NIUMA_ONCHAINOS_FORCE", "1")
+    else:
+        # complete-task is a manual primitive and must remain dry-run unless
+        # --execute is explicit, even when heartbeat autonomy is enabled.
+        os.environ["NIUMA_AGENT_AUTONOMOUS"] = "0"
+        os.environ.pop("NIUMA_ONCHAINOS_FORCE", None)
     state = load_state()
     chain_task = niuma_chain.task(task_id)
     output = {
