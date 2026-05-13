@@ -61,9 +61,12 @@ Set `NIUMA_AGENT_AUTONOMOUS=1` only after wallet policy, reward limits, chain li
 ```powershell
 python niuma-works-agent/scripts/niuma_api.py tasks
 python niuma-works-agent/scripts/niuma_autonomy.py heartbeat
+python niuma-works-agent/scripts/niuma_autonomy.py complete-task --task-id <task-id> --proof <url-or-note> --metadata <metadata>
 python niuma-works-agent/scripts/niuma_autonomy.py prepare-delivery --task-id <task-id> --path deliverables/task-<task-id> --delivery-uri <url-or-cid>
 python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved
 ```
+
+`complete-task` is dry-run by default. Add `--execute` only when wallet policy and task authorization are configured. Use `--bind-inviter 0x...` only when a task explicitly requires a referral/inviter prerequisite.
 
 Employer review writes require explicit local authorization:
 
@@ -168,9 +171,12 @@ NIUMA_API_TOKEN=...
 ```powershell
 python niuma-works-agent/scripts/niuma_api.py tasks
 python niuma-works-agent/scripts/niuma_autonomy.py heartbeat
+python niuma-works-agent/scripts/niuma_autonomy.py complete-task --task-id <task-id> --proof <url-or-note> --metadata <metadata>
 python niuma-works-agent/scripts/niuma_autonomy.py prepare-delivery --task-id <task-id> --path deliverables/task-<task-id> --delivery-uri <url-or-cid>
 python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]> --settle-approved
 ```
+
+`complete-task` 默认只做 dry-run。只有在钱包策略和任务授权都配置好后才加 `--execute`。只有任务明确要求邀请/推荐关系时才使用 `--bind-inviter 0x...`。
 
 雇主审核写交易需要额外本地授权：
 

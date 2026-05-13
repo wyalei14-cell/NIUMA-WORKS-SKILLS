@@ -53,14 +53,15 @@ def normalize_network(value=None):
 
 NETWORK = normalize_network()
 CONFIG = NETWORK_CONFIGS.get(NETWORK, NETWORK_CONFIGS["xlayer-mainnet"])
+ZERO = "0x0000000000000000000000000000000000000000"
 CHAIN_ID = os.environ.get("NIUMA_CHAIN_ID", CONFIG["chainId"])
 ONCHAINOS_CHAIN = os.environ.get("NIUMA_ONCHAINOS_CHAIN", CONFIG["onchainosChain"])
 RPC_URL = os.environ.get("NIUMA_RPC_URL", CONFIG["rpcUrl"])
 EXPLORER = os.environ.get("NIUMA_EXPLORER", CONFIG["explorer"])
 CORE = os.environ.get("NIUMA_CORE", CONFIG["core"])
 USER_PROFILE = os.environ.get("NIUMA_USER_PROFILE", CONFIG["userProfileCredit"])
+REFERRAL_SYSTEM = os.environ.get("NIUMA_REFERRAL_SYSTEM", CONFIG.get("referralSystem", ZERO))
 NIUMA_TOKEN = os.environ.get("NIUMA_TOKEN", CONFIG["niumaToken"])
-ZERO = "0x0000000000000000000000000000000000000000"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -333,6 +334,15 @@ def calldata_force_end_task(task_id):
     return encode_call("forceEndTask(uint256)", ["uint256"], [task_id])
 
 
+def calldata_bind_inviter(inviter):
+    return encode_call("bindInviter(address)", ["address"], [inviter])
+
+
+def inviter(address):
+    result = eth_call(REFERRAL_SYSTEM, encode_call("inviters(address)", ["address"], [address]))
+    return as_addr(split_words(result)[0])
+
+
 def get_task_participants(task_id):
     result = eth_call(CORE, encode_call("getTaskParticipants(uint256)", ["uint256"], [task_id]))
     words = split_words(result)
@@ -429,6 +439,8 @@ def main():
     p_submission = sub.add_parser("submission")
     p_submission.add_argument("--task-id", required=True, type=int)
     p_submission.add_argument("--participant", required=True)
+    p_inviter = sub.add_parser("inviter")
+    p_inviter.add_argument("--address", required=True)
     p_stake = sub.add_parser("stake-diagnostics")
     p_stake.add_argument("--address", required=True)
     p_stake.add_argument("--target-stake", type=int, default=None)
@@ -444,11 +456,13 @@ def main():
         "reject-submission-with-slash",
         "end-task",
         "force-end-task",
+        "bind-inviter",
     ])
     p_data.add_argument("--task-id", required=True, type=int)
     p_data.add_argument("--proof")
     p_data.add_argument("--metadata", default="")
     p_data.add_argument("--participant")
+    p_data.add_argument("--inviter")
     p_data.add_argument("--reason")
     p_data.add_argument("--evidence", default="")
     args = parser.parse_args()
@@ -467,6 +481,8 @@ def main():
         print(json.dumps({"taskId": args.task_id, "participants": get_task_participants(args.task_id)}, ensure_ascii=False, indent=2))
     elif args.cmd == "submission":
         print(json.dumps(submission(args.task_id, args.participant), ensure_ascii=False, indent=2))
+    elif args.cmd == "inviter":
+        print(json.dumps({"address": args.address, "inviter": inviter(args.address), "referralSystem": REFERRAL_SYSTEM}, ensure_ascii=False, indent=2))
     elif args.cmd == "stake-diagnostics":
         print(json.dumps(stake_diagnostics(args.address, args.target_stake), ensure_ascii=False, indent=2))
     elif args.cmd == "calldata":
@@ -510,6 +526,12 @@ def main():
             if args.method == "force-end-task":
                 data = calldata_force_end_task(args.task_id)
                 print(json.dumps({"method": args.method, "taskId": args.task_id, "calldata": data}, ensure_ascii=False, indent=2))
+                return
+            if args.method == "bind-inviter":
+                if not args.inviter:
+                    raise RuntimeError("--inviter is required")
+                data = calldata_bind_inviter(args.inviter)
+                print(json.dumps({"method": args.method, "taskId": args.task_id, "inviter": args.inviter, "to": REFERRAL_SYSTEM, "calldata": data}, ensure_ascii=False, indent=2))
                 return
             if not args.participant or not args.reason:
                 raise RuntimeError("--participant and --reason are required")

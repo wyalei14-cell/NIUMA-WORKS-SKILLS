@@ -650,6 +650,19 @@ def simulate_with_okx(wallet, to, data):
     return run(["onchainos", "gateway", "simulate", "--from", wallet, "--to", to, "--data", data, "--chain", onchainos_chain()])
 
 
+def okx_simulation_ok(sim):
+    if sim.get("returncode") != 0:
+        return False
+    try:
+        payload = json.loads(sim.get("stdout") or "{}")
+    except json.JSONDecodeError:
+        return True
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if isinstance(rows, list):
+        return not any(str(row.get("failReason") or "").strip() for row in rows if isinstance(row, dict))
+    return bool(payload.get("ok", True))
+
+
 def contract_call_with_okx(to, data, wallet=None):
     cmd = ["onchainos", "wallet", "contract-call", "--chain", onchainos_chain(), "--to", to, "--input-data", data, "--amt", "0"]
     if wallet:
@@ -757,7 +770,7 @@ def accept_task(state, wallet, chain_task):
     if not is_autonomous():
         result["nextAction"] = "Autonomous writes disabled. Set NIUMA_AGENT_AUTONOMOUS=1 and configure signer."
         return result
-    if sim["returncode"] != 0:
+    if not okx_simulation_ok(sim):
         result["nextAction"] = "Not writing because OKX simulation failed or this chain is unsupported by the current OKX path."
         return result
     if signing_mode() == "private-key-test":
@@ -781,7 +794,7 @@ def submit_task(wallet, task_id, proof, metadata):
     if not is_autonomous():
         result["nextAction"] = "Autonomous writes disabled; proof submission not sent."
         return result
-    if sim["returncode"] != 0:
+    if not okx_simulation_ok(sim):
         result["nextAction"] = "Proof submission simulation failed; not sending."
         return result
     if signing_mode() == "private-key-test":
@@ -793,6 +806,98 @@ def submit_task(wallet, task_id, proof, metadata):
     result["wrote"] = tx["returncode"] == 0
     result["nextAction"] = "Submitted proof." if result["wrote"] else "Proof submission transaction failed."
     return result
+
+
+def bind_inviter(wallet, inviter, execute=False):
+    current = niuma_chain.inviter(wallet)
+    result = {
+        "wallet": wallet,
+        "requestedInviter": inviter,
+        "currentInviter": current,
+        "wrote": False,
+    }
+    if current.lower() == inviter.lower():
+        result["ready"] = True
+        result["nextAction"] = "Inviter already bound."
+        return result
+    if current.lower() != niuma_chain.ZERO:
+        result["ready"] = False
+        result["nextAction"] = "Wallet already has a different inviter."
+        return result
+    data = niuma_chain.calldata_bind_inviter(inviter)
+    sim = simulate_with_okx(wallet, niuma_chain.REFERRAL_SYSTEM, data)
+    result.update({"calldata": data, "okxSimulation": sim})
+    if not okx_simulation_ok(sim):
+        result["ready"] = False
+        result["nextAction"] = "Inviter binding simulation failed."
+        return result
+    if not execute:
+        result["ready"] = True
+        result["nextAction"] = "Dry-run only; pass --execute or set NIUMA_AGENT_AUTONOMOUS=1 to bind inviter."
+        return result
+    tx = contract_call_with_okx(niuma_chain.REFERRAL_SYSTEM, data, wallet)
+    result["contractCall"] = tx
+    result["wrote"] = tx["returncode"] == 0
+    result["ready"] = result["wrote"]
+    result["nextAction"] = "Inviter bound." if result["wrote"] else "Inviter binding transaction failed."
+    return result
+
+
+def is_participant(task_id, wallet):
+    try:
+        return any(addr.lower() == wallet.lower() for addr in niuma_chain.get_task_participants(task_id))
+    except Exception:
+        return False
+
+
+def complete_task_once(wallet, task_id, proof="", metadata="", inviter="", execute=False):
+    if execute:
+        os.environ["NIUMA_AGENT_AUTONOMOUS"] = "1"
+        os.environ.setdefault("NIUMA_ONCHAINOS_FORCE", "1")
+    state = load_state()
+    chain_task = niuma_chain.task(task_id)
+    output = {
+        "taskId": task_id,
+        "wallet": wallet,
+        "execute": execute,
+        "task": {
+            "title": chain_task.get("title"),
+            "creator": chain_task.get("creator"),
+            "status": chain_task.get("status"),
+            "currentParticipants": chain_task.get("currentParticipants"),
+            "maxParticipants": chain_task.get("maxParticipants"),
+        },
+        "steps": [],
+    }
+    setup = wallet_setup_status(wallet)
+    output["setup"] = setup
+    if not setup["ok"]:
+        output["status"] = "setup_required"
+        return output
+    if inviter:
+        step = bind_inviter(wallet, inviter, execute=execute)
+        output["steps"].append({"name": "bind-inviter", **step})
+        if not step.get("ready"):
+            output["status"] = "blocked"
+            return output
+    if is_participant(task_id, wallet):
+        output["steps"].append({"name": "accept", "wrote": False, "ready": True, "nextAction": "Already participating; accept skipped."})
+    else:
+        step = accept_task(state, wallet, chain_task)
+        output["steps"].append({"name": "accept", **step})
+        if not step.get("wrote"):
+            output["status"] = "accept-blocked"
+            save_state(state)
+            return output
+    if proof:
+        step = submit_task(wallet, task_id, proof, metadata)
+        output["steps"].append({"name": "submit", **step})
+        output["status"] = "submitted" if step.get("wrote") else "submit-blocked"
+    else:
+        output["status"] = "accepted"
+        output["nextAction"] = "Provide --proof to submit task proof."
+    save_state(state)
+    return output
 
 
 def prepare_delivery(state, wallet, peer, task_id, title):
@@ -1033,6 +1138,13 @@ def main():
     delivery.add_argument("--title", default="")
     delivery.add_argument("--path", default=None)
     delivery.add_argument("--delivery-uri", default=None)
+    complete = sub.add_parser("complete-task")
+    complete.add_argument("--task-id", required=True, type=int)
+    complete.add_argument("--wallet", default=os.environ.get("NIUMA_AGENT_WALLET"))
+    complete.add_argument("--proof", default="")
+    complete.add_argument("--metadata", default="")
+    complete.add_argument("--bind-inviter", default="")
+    complete.add_argument("--execute", action="store_true", help="Execute writes after simulation; otherwise dry-run only")
     sub.add_parser("evaluate")
     args = parser.parse_args()
 
@@ -1050,6 +1162,31 @@ def main():
         return
     if args.cmd == "prepare-delivery":
         print(json.dumps(build_delivery_manifest(args.task_id, args.title or f"Task #{args.task_id}", args.path, args.delivery_uri), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "complete-task":
+        wallet = args.wallet
+        if not wallet and signing_mode() == "private-key-test" and os.environ.get("NIUMA_AGENT_PRIVATE_KEY"):
+            wallet = derive_wallet_from_private_key()
+        if not wallet and signing_mode() == "okx":
+            wallet = okx_wallet_address()
+            if wallet:
+                os.environ["NIUMA_AGENT_WALLET"] = wallet
+        if not wallet:
+            print(json.dumps({
+                "status": "setup_required",
+                "setup": wallet_setup_status(wallet),
+                "instructions": wallet_setup_instructions(),
+                "message": "wallet required before complete-task can run",
+            }, ensure_ascii=False, indent=2))
+            return
+        print(json.dumps(complete_task_once(
+            wallet,
+            args.task_id,
+            proof=args.proof,
+            metadata=args.metadata,
+            inviter=args.bind_inviter,
+            execute=args.execute,
+        ), ensure_ascii=False, indent=2))
         return
     if args.cmd == "heartbeat":
         wallet = args.wallet
