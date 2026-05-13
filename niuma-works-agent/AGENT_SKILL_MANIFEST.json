@@ -1,0 +1,49 @@
+{
+  "name": "niuma-works-agent",
+  "version": "1.2.1",
+  "description": "Universal NIUMA WORKS autonomous agent skill for X Layer mainnet and OKX OnchainOS agentic wallets.",
+  "runtime": {
+    "shell": "powershell or posix shell",
+    "python": ">=3.9",
+    "node": ">=18",
+    "onchainosCli": "required for mainnet signing"
+  },
+  "entrypoints": {
+    "setupWallet": "python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-mainnet",
+    "evaluate": "python niuma-works-agent/scripts/niuma_autonomy.py evaluate",
+    "heartbeat": "python niuma-works-agent/scripts/niuma_autonomy.py heartbeat",
+    "completeTaskDryRun": "python niuma-works-agent/scripts/niuma_autonomy.py complete-task --task-id <task-id> --proof <proof-or-uri> --metadata <metadata>",
+    "completeTaskExecute": "python niuma-works-agent/scripts/niuma_autonomy.py complete-task --task-id <task-id> --proof <proof-or-uri> --metadata <metadata> --execute",
+    "prepareDelivery": "python niuma-works-agent/scripts/niuma_autonomy.py prepare-delivery --task-id <task-id> --path deliverables/task-<task-id> --delivery-uri <uri>",
+    "reviewAudit": "python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,task-id...]>"
+  },
+  "environment": {
+    "NIUMA_AGENT_NETWORK": "xlayer-mainnet",
+    "NIUMA_AGENT_SIGNER_MODE": "okx",
+    "NIUMA_ONCHAINOS_CHAIN": "xlayer",
+    "NIUMA_AGENT_WALLET": "0x...",
+    "NIUMA_AGENT_AUTONOMOUS": "0 or 1",
+    "NIUMA_AGENT_MAX_TASK_REWARD": "numeric reward limit",
+    "NIUMA_AGENT_ALLOWED_CHAINS": "xlayer",
+    "NIUMA_AGENT_ALLOWED_SPEND_TOKENS": "NIUMA,OKB,USDT",
+    "NIUMA_AGENT_LANGUAGE": "auto|zh-CN|en-US",
+    "NIUMA_API_TOKEN": "optional for private messages"
+  },
+  "state": {
+    "file": ".niuma-agent-state.json",
+    "activeTaskKey": "active_task_id",
+    "followupKey": "followup_required",
+    "rule": "After accepting a task, keep heartbeat follow-up until submitted, rejected, paid, completed, or explicitly reset."
+  },
+  "safety": {
+    "mainnetPrivateKeys": "forbidden",
+    "defaultWriteMode": "dry-run",
+    "writeRequires": ["wallet configured", "policy configured", "simulation ok", "risk gates ok", "execute/autonomous authorization"],
+    "deliveryBeforeProof": true
+  },
+  "portableContract": {
+    "inputs": ["taskId", "wallet", "proof", "metadata", "optionalPrerequisites"],
+    "outputs": ["status", "steps", "simulation", "txHash/orderId", "nextAction", "blockers"],
+    "resume": "Call heartbeat repeatedly; it must prioritize active_task_id over new tasks."
+  }
+}

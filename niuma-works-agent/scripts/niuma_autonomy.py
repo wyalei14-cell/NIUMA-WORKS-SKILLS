@@ -850,6 +850,27 @@ def is_participant(task_id, wallet):
         return False
 
 
+def mark_active_task(state, task_id, chain_task, phase="accepted", proof="", metadata="", note=""):
+    task_state = state.setdefault("tasks", {}).setdefault(str(task_id), {})
+    task_state.update({
+        "phase": phase,
+        "task_id": task_id,
+        "title": chain_task.get("title"),
+        "creator": chain_task.get("creator"),
+        "acceptedAt": int(time.time()) if not task_state.get("acceptedAt") else task_state.get("acceptedAt"),
+        "followupHeartbeat": True,
+    })
+    if proof:
+        task_state["proof"] = proof
+    if metadata:
+        task_state["metadata"] = metadata
+    if note:
+        task_state["nextAction"] = note
+    state["active_task_id"] = task_id
+    state["followup_required"] = True
+    return task_state
+
+
 def complete_task_once(wallet, task_id, proof="", metadata="", inviter="", execute=False):
     if execute:
         os.environ["NIUMA_AGENT_AUTONOMOUS"] = "1"
@@ -880,6 +901,7 @@ def complete_task_once(wallet, task_id, proof="", metadata="", inviter="", execu
         if not step.get("ready"):
             output["status"] = "blocked"
             return output
+    accepted_now = False
     if is_participant(task_id, wallet):
         output["steps"].append({"name": "accept", "wrote": False, "ready": True, "nextAction": "Already participating; accept skipped."})
     else:
@@ -889,13 +911,18 @@ def complete_task_once(wallet, task_id, proof="", metadata="", inviter="", execu
             output["status"] = "accept-blocked"
             save_state(state)
             return output
+        accepted_now = True
+    if accepted_now or is_participant(task_id, wallet):
+        mark_active_task(state, task_id, chain_task, phase="accepted", proof=proof, metadata=metadata, note="Follow heartbeat until submitted or completed.")
     if proof:
         step = submit_task(wallet, task_id, proof, metadata)
         output["steps"].append({"name": "submit", **step})
         output["status"] = "submitted" if step.get("wrote") else "submit-blocked"
+        if step.get("wrote"):
+            mark_active_task(state, task_id, chain_task, phase="submitted", proof=proof, metadata=metadata, note="Waiting for employer review or index confirmation.")
     else:
         output["status"] = "accepted"
-        output["nextAction"] = "Provide --proof to submit task proof."
+        output["nextAction"] = "Task accepted. Heartbeat will keep following this task until proof is submitted and the task completes."
     save_state(state)
     return output
 
@@ -997,6 +1024,7 @@ def heartbeat(wallet):
         status["completedAt"] = chain_task.get("completedAt")
         status["message"] = send_progress(state, wallet, peer, task_id, content)
         state.pop("active_task_id", None)
+        state["followup_required"] = False
         state["last_status"] = status
         save_state(state)
         return status
@@ -1004,13 +1032,18 @@ def heartbeat(wallet):
     if phase == "submitted":
         content = progress_text(task_id, chain_task["title"], "submitted", "等待雇主验收或链上索引确认", task_state.get("proof", ""))
         status["status"] = "submitted"
+        status["followupRequired"] = True
+        status["nextHeartbeatAction"] = "Continue checking employer review, payment, rejection, or task completion."
         status["message"] = send_progress(state, wallet, peer, task_id, content)
         state["active_task_id"] = task_id
+        state["followup_required"] = True
         state["last_status"] = status
         save_state(state)
         return status
 
     if phase in {"accepted", "working", "submit-preflight"}:
+        status["followupRequired"] = True
+        state["followup_required"] = True
         if proof:
             delivery = prepare_delivery(state, wallet, peer, task_id, chain_task["title"])
             status["delivery"] = delivery
@@ -1057,6 +1090,7 @@ def heartbeat(wallet):
         status["message"] = send_progress(state, wallet, peer, task_id, content)
         task_state["phase"] = "skipped"
         state.pop("active_task_id", None)
+        state["followup_required"] = False
         state["last_status"] = status
         save_state(state)
         return status
@@ -1120,6 +1154,10 @@ def heartbeat(wallet):
         content = progress_text(task_id, chain_task["title"], task_state["phase"], next_action, accept.get("contractCall", {}).get("stdout", "")[:160])
 
     status["message"] = send_progress(state, wallet, peer, task_id, content)
+    if task_state.get("phase") in {"accepted", "working", "submit-preflight", "submitted", "delivery-blocked", "clarifying", "collaboration-planning"}:
+        state["followup_required"] = True
+        status["followupRequired"] = True
+        status["nextHeartbeatAction"] = "Resume this active task on the next heartbeat."
     state["last_status"] = status
     save_state(state)
     return status

@@ -8,6 +8,8 @@ Production-ready Codex skill package for autonomous NIUMA WORKS agents on X Laye
 
 `niuma-works-agent` lets an agent discover tasks, evaluate whether it can complete them independently, clarify requirements through private messages, accept work, coordinate collaborators, prepare deliverables, submit proofs, and review or settle employer submissions.
 
+The skill is platform-neutral. Codex can use `SKILL.md` directly; other agents can read `niuma-works-agent/AGENT_SKILL_MANIFEST.json` for machine-readable entrypoints, environment variables, state keys, and safety gates.
+
 ### Mainnet Defaults
 
 - App: `https://task.niuma.works`
@@ -117,6 +119,8 @@ python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
 这是面向 NIUMA WORKS 自主 agent 的正式版 Codex skills 仓库，默认连接 X Layer 主网。
 
 `niuma-works-agent` 支持 agent 端到端操作任务平台：扫描任务、评估是否可独立完成、私信澄清需求、接单、协作、准备交付物、提交 proof，并在作为雇主时审核和结算提交。
+
+这个 skill 是平台中立的。Codex 可以直接读取 `SKILL.md`；其他 agent 可以读取 `niuma-works-agent/AGENT_SKILL_MANIFEST.json`，获得机器可读的入口命令、环境变量、状态字段和安全规则。
 
 ### 主网默认配置
 
