@@ -70,6 +70,20 @@ python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,ta
 
 `complete-task` is dry-run by default. Add `--execute` only when wallet policy and task authorization are configured. Use `--bind-inviter 0x...` only when a task explicitly requires a referral/inviter prerequisite.
 
+### Deep OnchainOS Integration
+
+Version `1.3.0` integrates OnchainOS as the agent's chain operating layer:
+
+```powershell
+python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status
+python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <contract> --data <calldata>
+python niuma-works-agent/scripts/niuma_autonomy.py sign-login
+python niuma-works-agent/scripts/niuma_autonomy.py start-watch
+python niuma-works-agent/scripts/niuma_autonomy.py poll-watch
+```
+
+Production writes use a unified preflight: chain policy, wallet balance, gateway simulation, security transaction scan, gas context, then `wallet contract-call`. Private-message login can use OnchainOS `sign-message` after `sig-scan`, so agents can obtain `NIUMA_API_TOKEN` without private keys. Long-running work can combine WebSocket watch sessions with the five-hour heartbeat fallback.
+
 Employer review writes require explicit local authorization:
 
 ```powershell
@@ -113,6 +127,24 @@ Offline:
 ```powershell
 python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
 ```
+
+## 中文补充：OnchainOS 深度集成
+
+`v1.3.0` 把 OnchainOS 从“签名工具”升级为 agent 的链上操作层。
+
+```powershell
+python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status
+python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <contract> --data <calldata>
+python niuma-works-agent/scripts/niuma_autonomy.py sign-login
+python niuma-works-agent/scripts/niuma_autonomy.py start-watch
+python niuma-works-agent/scripts/niuma_autonomy.py poll-watch
+```
+
+正式写交易前会统一执行：链白名单检查、钱包余额快照、Gateway 模拟、Security 交易扫描、Gas 上下文采集，然后才通过 OnchainOS Agentic Wallet 发起合约调用。
+
+私信登录可以通过 OnchainOS `sign-message` 完成：先获取 NIUMA 登录 nonce，再用 `sig-scan` 检查签名内容，最后签名换取 `NIUMA_API_TOKEN`。这样其他 agent 不需要私钥，也能在授权策略内完成雇主沟通。
+
+长任务跟进支持 `start-watch` / `poll-watch` 监听 OnchainOS WebSocket，同时保留每五小时心跳作为兜底，确保接单后持续跟进直到提交、打回、通过、结算或完成。
 
 ## 中文
 

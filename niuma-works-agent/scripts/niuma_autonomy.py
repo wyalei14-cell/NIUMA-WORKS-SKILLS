@@ -51,6 +51,9 @@ load_env_file()
 
 DEFAULT_NETWORK = os.environ.get("NIUMA_AGENT_NETWORK", "xlayer-mainnet").strip().lower()
 DEFAULT_LANGUAGE = os.environ.get("NIUMA_AGENT_LANGUAGE", os.environ.get("NIUMA_AGENT_LOCALE", "auto")).strip()
+ONCHAINOS_SECURITY_SCAN = os.environ.get("NIUMA_ONCHAINOS_SECURITY_SCAN", "1") != "0"
+ONCHAINOS_GAS_PREFLIGHT = os.environ.get("NIUMA_ONCHAINOS_GAS_PREFLIGHT", "1") != "0"
+ONCHAINOS_BALANCE_PREFLIGHT = os.environ.get("NIUMA_ONCHAINOS_BALANCE_PREFLIGHT", "1") != "0"
 
 
 def language_for(text=""):
@@ -272,7 +275,7 @@ def capabilities():
 
 
 def run(cmd, timeout=90):
-    result = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout)
+    result = subprocess.run(cmd, text=True, capture_output=True, timeout=timeout, encoding="utf-8", errors="replace")
     return {
         "cmd": " ".join(str(part) for part in cmd),
         "returncode": result.returncode,
@@ -578,18 +581,57 @@ def send_progress(state, wallet, peer, task_id, content):
 
 
 def ensure_api_token(wallet):
-    if signing_mode() != "private-key-test" or not os.environ.get("NIUMA_AGENT_PRIVATE_KEY"):
-        return None
     try:
         nonce_data = niuma_api.request_json("GET", "/auth/nonce", params={"address": wallet})
         nonce = nonce_data.get("nonce") if isinstance(nonce_data, dict) else nonce_data
         message = f"Sign this message to authenticate: {nonce}"
-        script = Path(__file__).with_name("niuma_private_key_signer.mjs")
-        signed = run(["node", str(script), "sign-message", "--message", message], timeout=30)
+        sig_scan = run([
+            "onchainos",
+            "security",
+            "sig-scan",
+            "--from",
+            wallet,
+            "--chain",
+            onchainos_chain(),
+            "--sig-method",
+            "personal_sign",
+            "--message",
+            message,
+        ], timeout=30) if signing_mode() == "okx" else {"skipped": True}
+        if isinstance(sig_scan, dict) and not sig_scan.get("skipped") and critical_risk_found(sig_scan):
+            return None
+        if signing_mode() == "okx":
+            cmd = [
+                "onchainos",
+                "wallet",
+                "sign-message",
+                "--message",
+                message,
+                "--chain",
+                onchainos_chain(),
+                "--from",
+                wallet,
+            ]
+            if is_autonomous() or os.environ.get("NIUMA_ONCHAINOS_FORCE") == "1":
+                cmd.append("--force")
+            signed = run(cmd, timeout=60)
+        elif signing_mode() == "private-key-test" and os.environ.get("NIUMA_AGENT_PRIVATE_KEY"):
+            script = Path(__file__).with_name("niuma_private_key_signer.mjs")
+            signed = run(["node", str(script), "sign-message", "--message", message], timeout=30)
+        else:
+            return None
         if signed["returncode"] != 0:
             return None
-        payload = json.loads(signed["stdout"])
-        login = niuma_api.request_json("POST", "/auth/login", body={"address": wallet, "signature": payload["signature"]})
+        payload = parse_json_output(signed) or {}
+        signature = payload.get("signature")
+        if not signature and isinstance(payload.get("data"), dict):
+            signature = payload["data"].get("signature")
+        if not signature:
+            match = re.search(r"0x[a-fA-F0-9]{120,}", signed.get("stdout") or "")
+            signature = match.group(0) if match else None
+        if not signature:
+            return None
+        login = niuma_api.request_json("POST", "/auth/login", body={"address": wallet, "signature": signature})
         token = login.get("token") if isinstance(login, dict) else None
         if token:
             os.environ["NIUMA_API_TOKEN"] = token
@@ -663,6 +705,115 @@ def okx_simulation_ok(sim):
     return bool(payload.get("ok", True))
 
 
+def parse_json_output(result):
+    try:
+        return json.loads(result.get("stdout") or "{}")
+    except json.JSONDecodeError:
+        return None
+
+
+def critical_risk_found(result):
+    if result.get("returncode") != 0:
+        return True
+    text = f"{result.get('stdout') or ''}\n{result.get('stderr') or ''}".lower()
+    critical_words = ("critical", "danger", "malicious", "phishing", "honeypot", "high risk", "high-risk")
+    return any(word in text for word in critical_words)
+
+
+def chain_policy_ok():
+    chain = onchainos_chain()
+    allowed = {item.strip().lower() for item in os.environ.get("NIUMA_AGENT_ALLOWED_CHAINS", chain).split(",") if item.strip()}
+    ok = not allowed or chain.lower() in allowed
+    return {"ok": ok, "chain": chain, "allowedChains": sorted(allowed), "reason": "" if ok else f"chain not allowed by policy: {chain}"}
+
+
+def onchainos_balance_snapshot(wallet, force=False):
+    if not wallet or not ONCHAINOS_BALANCE_PREFLIGHT:
+        return {"skipped": True, "reason": "wallet missing or balance preflight disabled"}
+    cmd = ["onchainos", "wallet", "balance", "--chain", onchainos_chain()]
+    if force:
+        cmd.append("--force")
+    return run(cmd, timeout=45)
+
+
+def onchainos_approval_snapshot(wallet):
+    if not wallet or not ONCHAINOS_SECURITY_SCAN:
+        return {"skipped": True, "reason": "wallet missing or security scan disabled"}
+    return run(["onchainos", "security", "approvals", "--address", wallet, "--chain", onchainos_chain(), "--limit", "20"], timeout=45)
+
+
+def onchainos_security_tx_scan(wallet, to, data):
+    if not ONCHAINOS_SECURITY_SCAN:
+        return {"skipped": True, "reason": "NIUMA_ONCHAINOS_SECURITY_SCAN=0"}
+    return run([
+        "onchainos",
+        "security",
+        "tx-scan",
+        "--from",
+        wallet,
+        "--to",
+        to,
+        "--data",
+        data,
+        "--value",
+        "0x0",
+        "--chain",
+        onchainos_chain(),
+    ], timeout=60)
+
+
+def onchainos_gas_context(wallet, to, data):
+    if not ONCHAINOS_GAS_PREFLIGHT:
+        return {"skipped": True, "reason": "NIUMA_ONCHAINOS_GAS_PREFLIGHT=0"}
+    return {
+        "gas": run(["onchainos", "gateway", "gas", "--chain", onchainos_chain()], timeout=45),
+        "gasLimit": run([
+            "onchainos",
+            "gateway",
+            "gas-limit",
+            "--from",
+            wallet,
+            "--to",
+            to,
+            "--amount",
+            "0",
+            "--data",
+            data,
+            "--chain",
+            onchainos_chain(),
+        ], timeout=45),
+    }
+
+
+def onchainos_preflight(wallet, to, data, purpose="contract-call"):
+    policy = chain_policy_ok()
+    result = {
+        "purpose": purpose,
+        "wallet": wallet,
+        "to": to,
+        "chain": onchainos_chain(),
+        "policy": policy,
+        "ok": False,
+    }
+    if not policy["ok"]:
+        result["blocker"] = policy["reason"]
+        return result
+    result["balance"] = onchainos_balance_snapshot(wallet)
+    result["simulation"] = simulate_with_okx(wallet, to, data)
+    if not okx_simulation_ok(result["simulation"]):
+        result["blocker"] = "OKX gateway simulation failed"
+        return result
+    result["txScan"] = onchainos_security_tx_scan(wallet, to, data)
+    if isinstance(result["txScan"], dict) and result["txScan"].get("skipped"):
+        pass
+    elif critical_risk_found(result["txScan"]):
+        result["blocker"] = "OnchainOS security tx-scan reported risk"
+        return result
+    result["gas"] = onchainos_gas_context(wallet, to, data)
+    result["ok"] = True
+    return result
+
+
 def contract_call_with_okx(to, data, wallet=None):
     cmd = ["onchainos", "wallet", "contract-call", "--chain", onchainos_chain(), "--to", to, "--input-data", data, "--amt", "0"]
     if wallet:
@@ -675,6 +826,60 @@ def contract_call_with_okx(to, data, wallet=None):
 def contract_call_with_private_key(to, data, task_id, action="accept"):
     script = Path(__file__).with_name("niuma_private_key_signer.mjs")
     return run(["node", str(script), action, "--task-id", str(task_id), "--to", to, "--data", data], timeout=180)
+
+
+def onchainos_status(wallet=None, refresh_balance=False):
+    wallet = wallet or os.environ.get("NIUMA_AGENT_WALLET")
+    status = run(["onchainos", "wallet", "status"], timeout=30)
+    addresses = run(["onchainos", "wallet", "addresses", "--chain", onchainos_chain()], timeout=30)
+    detected = wallet or okx_wallet_address()
+    return {
+        "network": DEFAULT_NETWORK,
+        "chain": onchainos_chain(),
+        "signerMode": signing_mode(),
+        "wallet": detected,
+        "walletStatus": status,
+        "addresses": addresses,
+        "balance": onchainos_balance_snapshot(detected, force=refresh_balance) if detected else {"skipped": True, "reason": "wallet missing"},
+        "approvals": onchainos_approval_snapshot(detected) if detected else {"skipped": True, "reason": "wallet missing"},
+        "policy": {
+            "autonomous": is_autonomous(),
+            "chain": chain_policy_ok(),
+            "maxTaskReward": os.environ.get("NIUMA_AGENT_MAX_TASK_REWARD", ""),
+            "allowedSpendTokens": os.environ.get("NIUMA_AGENT_ALLOWED_SPEND_TOKENS", ""),
+        },
+    }
+
+
+def start_onchainos_watch(wallet=None):
+    wallet = wallet or os.environ.get("NIUMA_AGENT_WALLET")
+    state = load_state()
+    result = run(["onchainos", "ws", "start", "--chain", onchainos_chain()], timeout=45)
+    session_id = None
+    payload = parse_json_output(result)
+    if isinstance(payload, dict):
+        session_id = payload.get("id") or payload.get("sessionId")
+        if not session_id and isinstance(payload.get("data"), dict):
+            session_id = payload["data"].get("id") or payload["data"].get("sessionId")
+    if not session_id:
+        match = re.search(r"[a-fA-F0-9-]{12,}", result.get("stdout") or "")
+        session_id = match.group(0) if match else None
+    state.setdefault("onchainos", {})["wsSessionId"] = session_id
+    state["onchainos"]["wsStart"] = result
+    state["onchainos"]["watchWallet"] = wallet
+    save_state(state)
+    return {"wallet": wallet, "chain": onchainos_chain(), "sessionId": session_id, "result": result}
+
+
+def poll_onchainos_watch():
+    state = load_state()
+    session_id = state.get("onchainos", {}).get("wsSessionId")
+    if not session_id:
+        return {"ok": False, "reason": "no ws session id in state; run start-watch first"}
+    result = run(["onchainos", "ws", "poll", "--id", session_id], timeout=45)
+    state.setdefault("onchainos", {})["lastPoll"] = {"time": int(time.time()), "result": result}
+    save_state(state)
+    return {"ok": result.get("returncode") == 0, "sessionId": session_id, "result": result}
 
 
 def signing_mode(network=None):
@@ -715,6 +920,11 @@ def maybe_auto_stake(wallet, task_id, target_stake=None):
         if os.environ.get("NIUMA_AGENT_AUTO_APPROVE", "1") != "1":
             output["reason"] = "approval needed before staking; auto approve disabled"
             return output
+        approve_preflight = onchainos_preflight(wallet, niuma_chain.NIUMA_TOKEN, diag["approveCalldata"], purpose="approve-NIUMA-stake")
+        output["approvePreflight"] = approve_preflight
+        if signing_mode() != "private-key-test" and not approve_preflight.get("ok"):
+            output["reason"] = approve_preflight.get("blocker", "approval preflight failed")
+            return output
         if signing_mode() == "private-key-test":
             approve_tx = contract_call_with_private_key(niuma_chain.NIUMA_TOKEN, diag["approveCalldata"], task_id)
         else:
@@ -728,6 +938,11 @@ def maybe_auto_stake(wallet, task_id, target_stake=None):
         if diag.get("needsApprove"):
             output["reason"] = "approval completed but allowance is still insufficient"
             return output
+    stake_preflight = onchainos_preflight(wallet, niuma_chain.USER_PROFILE, diag["stakeCalldata"], purpose="stake-NIUMA")
+    output["stakePreflight"] = stake_preflight
+    if signing_mode() != "private-key-test" and not stake_preflight.get("ok"):
+        output["reason"] = stake_preflight.get("blocker", "stake preflight failed")
+        return output
     if signing_mode() == "private-key-test":
         tx = contract_call_with_private_key(niuma_chain.USER_PROFILE, diag["stakeCalldata"], task_id)
     else:
@@ -741,11 +956,11 @@ def accept_task(state, wallet, chain_task):
     task_id = int(chain_task["id"])
     data = niuma_chain.calldata_participate(task_id)
     can_accept = niuma_chain.can_accept(wallet, chain_task["bountyPerUser"], chain_task["tokenAddress"])
-    sim = simulate_with_okx(wallet, CORE, data)
+    preflight = onchainos_preflight(wallet, CORE, data, purpose="participateTask")
     result = {
         "canAccept": can_accept,
         "calldata": data,
-        "okxSimulation": sim,
+        "onchainosPreflight": preflight,
         "wrote": False,
     }
     if not can_accept:
@@ -756,8 +971,8 @@ def accept_task(state, wallet, chain_task):
             result["canAcceptAfterStake"] = can_accept
             result["canAccept"] = can_accept
             if can_accept:
-                sim = simulate_with_okx(wallet, CORE, data)
-                result["okxSimulationAfterStake"] = sim
+                preflight = onchainos_preflight(wallet, CORE, data, purpose="participateTask-after-stake")
+                result["onchainosPreflightAfterStake"] = preflight
             else:
                 result["nextAction"] = "Staked but canAcceptTask still returned false."
                 return result
@@ -770,8 +985,8 @@ def accept_task(state, wallet, chain_task):
     if not is_autonomous():
         result["nextAction"] = "Autonomous writes disabled. Set NIUMA_AGENT_AUTONOMOUS=1 and configure signer."
         return result
-    if not okx_simulation_ok(sim):
-        result["nextAction"] = "Not writing because OKX simulation failed or this chain is unsupported by the current OKX path."
+    if signing_mode() != "private-key-test" and not preflight.get("ok"):
+        result["nextAction"] = f"Not writing because OnchainOS preflight failed: {preflight.get('blocker')}"
         return result
     if signing_mode() == "private-key-test":
         tx = contract_call_with_private_key(CORE, data, task_id)
@@ -789,13 +1004,13 @@ def accept_task(state, wallet, chain_task):
 
 def submit_task(wallet, task_id, proof, metadata):
     data = niuma_chain.calldata_submit(task_id, proof, metadata)
-    sim = simulate_with_okx(wallet, CORE, data)
-    result = {"proof": proof, "metadata": metadata, "calldata": data, "okxSimulation": sim, "wrote": False}
+    preflight = onchainos_preflight(wallet, CORE, data, purpose="submitProof")
+    result = {"proof": proof, "metadata": metadata, "calldata": data, "onchainosPreflight": preflight, "wrote": False}
     if not is_autonomous():
         result["nextAction"] = "Autonomous writes disabled; proof submission not sent."
         return result
-    if not okx_simulation_ok(sim):
-        result["nextAction"] = "Proof submission simulation failed; not sending."
+    if signing_mode() != "private-key-test" and not preflight.get("ok"):
+        result["nextAction"] = f"Proof submission preflight failed; not sending: {preflight.get('blocker')}"
         return result
     if signing_mode() == "private-key-test":
         tx = contract_call_with_private_key(CORE, data, task_id, action="accept")
@@ -825,11 +1040,11 @@ def bind_inviter(wallet, inviter, execute=False):
         result["nextAction"] = "Wallet already has a different inviter."
         return result
     data = niuma_chain.calldata_bind_inviter(inviter)
-    sim = simulate_with_okx(wallet, niuma_chain.REFERRAL_SYSTEM, data)
-    result.update({"calldata": data, "okxSimulation": sim})
-    if not okx_simulation_ok(sim):
+    preflight = onchainos_preflight(wallet, niuma_chain.REFERRAL_SYSTEM, data, purpose="bindInviter")
+    result.update({"calldata": data, "onchainosPreflight": preflight})
+    if not preflight.get("ok"):
         result["ready"] = False
-        result["nextAction"] = "Inviter binding simulation failed."
+        result["nextAction"] = f"Inviter binding preflight failed: {preflight.get('blocker')}"
         return result
     if not execute:
         result["ready"] = True
@@ -1017,6 +1232,8 @@ def heartbeat(wallet):
         "phase": task_state.get("phase"),
         "autonomous": is_autonomous(),
     }
+    if state.get("onchainos", {}).get("wsSessionId") and os.environ.get("NIUMA_ONCHAINOS_WS_POLL", "1") != "0":
+        status["onchainosEvents"] = poll_onchainos_watch()
 
     phase = task_state.get("phase")
     proof = os.environ.get("NIUMA_AGENT_PROOF_HASH") or task_state.get("proof")
@@ -1183,6 +1400,19 @@ def main():
     delivery.add_argument("--title", default="")
     delivery.add_argument("--path", default=None)
     delivery.add_argument("--delivery-uri", default=None)
+    ox_status = sub.add_parser("onchainos-status")
+    ox_status.add_argument("--wallet", default=os.environ.get("NIUMA_AGENT_WALLET"))
+    ox_status.add_argument("--refresh-balance", action="store_true")
+    ox_preflight = sub.add_parser("onchainos-preflight")
+    ox_preflight.add_argument("--wallet", default=os.environ.get("NIUMA_AGENT_WALLET"))
+    ox_preflight.add_argument("--to", required=True)
+    ox_preflight.add_argument("--data", required=True)
+    ox_preflight.add_argument("--purpose", default="manual-preflight")
+    ox_watch = sub.add_parser("start-watch")
+    ox_watch.add_argument("--wallet", default=os.environ.get("NIUMA_AGENT_WALLET"))
+    sub.add_parser("poll-watch")
+    sign_login = sub.add_parser("sign-login")
+    sign_login.add_argument("--wallet", default=os.environ.get("NIUMA_AGENT_WALLET"))
     complete = sub.add_parser("complete-task")
     complete.add_argument("--task-id", required=True, type=int)
     complete.add_argument("--wallet", default=os.environ.get("NIUMA_AGENT_WALLET"))
@@ -1207,6 +1437,28 @@ def main():
         return
     if args.cmd == "prepare-delivery":
         print(json.dumps(build_delivery_manifest(args.task_id, args.title or f"Task #{args.task_id}", args.path, args.delivery_uri), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "onchainos-status":
+        print(json.dumps(onchainos_status(args.wallet, refresh_balance=args.refresh_balance), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "onchainos-preflight":
+        wallet = args.wallet or okx_wallet_address()
+        if not wallet:
+            print(json.dumps({"ok": False, "reason": "wallet required"}, ensure_ascii=False, indent=2))
+            return
+        print(json.dumps(onchainos_preflight(wallet, args.to, args.data, purpose=args.purpose), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "start-watch":
+        wallet = args.wallet or okx_wallet_address()
+        print(json.dumps(start_onchainos_watch(wallet), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "poll-watch":
+        print(json.dumps(poll_onchainos_watch(), ensure_ascii=False, indent=2))
+        return
+    if args.cmd == "sign-login":
+        wallet = args.wallet or okx_wallet_address()
+        token = ensure_api_token(wallet) if wallet else None
+        print(json.dumps({"ok": bool(token), "wallet": wallet, "tokenAvailable": bool(os.environ.get("NIUMA_API_TOKEN"))}, ensure_ascii=False, indent=2))
         return
     if args.cmd == "complete-task":
         wallet = args.wallet

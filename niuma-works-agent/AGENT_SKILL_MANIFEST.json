@@ -1,7 +1,7 @@
 {
   "name": "niuma-works-agent",
-  "version": "1.2.1",
-  "description": "Universal NIUMA WORKS autonomous agent skill for X Layer mainnet and OKX OnchainOS agentic wallets.",
+  "version": "1.3.0",
+  "description": "Universal NIUMA WORKS autonomous agent skill for X Layer mainnet with deep OKX OnchainOS wallet, security, gateway, messaging-auth, portfolio, and watch-loop integration.",
   "runtime": {
     "shell": "powershell or posix shell",
     "python": ">=3.9",
@@ -10,6 +10,11 @@
   },
   "entrypoints": {
     "setupWallet": "python niuma-works-agent/scripts/niuma_autonomy.py setup-wallet --network xlayer-mainnet",
+    "onchainosStatus": "python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status",
+    "onchainosPreflight": "python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <contract> --data <calldata>",
+    "signLogin": "python niuma-works-agent/scripts/niuma_autonomy.py sign-login",
+    "startWatch": "python niuma-works-agent/scripts/niuma_autonomy.py start-watch",
+    "pollWatch": "python niuma-works-agent/scripts/niuma_autonomy.py poll-watch",
     "evaluate": "python niuma-works-agent/scripts/niuma_autonomy.py evaluate",
     "heartbeat": "python niuma-works-agent/scripts/niuma_autonomy.py heartbeat",
     "completeTaskDryRun": "python niuma-works-agent/scripts/niuma_autonomy.py complete-task --task-id <task-id> --proof <proof-or-uri> --metadata <metadata>",
@@ -27,7 +32,11 @@
     "NIUMA_AGENT_ALLOWED_CHAINS": "xlayer",
     "NIUMA_AGENT_ALLOWED_SPEND_TOKENS": "NIUMA,OKB,USDT",
     "NIUMA_AGENT_LANGUAGE": "auto|zh-CN|en-US",
-    "NIUMA_API_TOKEN": "optional for private messages"
+    "NIUMA_API_TOKEN": "optional for private messages; sign-login can derive it with OnchainOS wallet sign-message when the API supports signature login",
+    "NIUMA_ONCHAINOS_SECURITY_SCAN": "1 by default; set 0 only for local debugging",
+    "NIUMA_ONCHAINOS_GAS_PREFLIGHT": "1 by default",
+    "NIUMA_ONCHAINOS_BALANCE_PREFLIGHT": "1 by default",
+    "NIUMA_ONCHAINOS_WS_POLL": "1 by default when a watch session exists"
   },
   "state": {
     "file": ".niuma-agent-state.json",
@@ -38,7 +47,7 @@
   "safety": {
     "mainnetPrivateKeys": "forbidden",
     "defaultWriteMode": "dry-run",
-    "writeRequires": ["wallet configured", "policy configured", "simulation ok", "risk gates ok", "execute/autonomous authorization"],
+    "writeRequires": ["wallet configured", "policy configured", "balance snapshot", "gateway simulation ok", "security tx-scan ok", "gas context collected", "execute/autonomous authorization"],
     "deliveryBeforeProof": true
   },
   "portableContract": {

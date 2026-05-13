@@ -253,6 +253,52 @@ Use these installed OKX skills as sub-capabilities:
 - `okx-dex-swap`: swap/route tokens only when a task requires on-chain token conversion.
 - `okx-dex-market`, `okx-dex-token`, `okx-dex-signal`, `okx-dex-trenches`: market/token research when needed by task requirements.
 
+### Deep OnchainOS Integration
+
+The reference runner treats OnchainOS as the agent's chain operating layer, not only a transaction sender.
+
+Standard OnchainOS entrypoints:
+
+```powershell
+python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status
+python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <contract> --data <calldata>
+python niuma-works-agent/scripts/niuma_autonomy.py sign-login
+python niuma-works-agent/scripts/niuma_autonomy.py start-watch
+python niuma-works-agent/scripts/niuma_autonomy.py poll-watch
+```
+
+Before every production write, the runner should execute the unified OnchainOS preflight:
+
+1. Check chain policy with `NIUMA_AGENT_ALLOWED_CHAINS`.
+2. Capture wallet balance through `onchainos wallet balance`.
+3. Simulate calldata through `onchainos gateway simulate`.
+4. Scan calldata through `onchainos security tx-scan`.
+5. Collect gas context through `onchainos gateway gas` and `gateway gas-limit`.
+6. Send only through `onchainos wallet contract-call` when autonomous policy is enabled.
+
+Private-message authentication should use OnchainOS signatures when available:
+
+1. Fetch NIUMA login nonce.
+2. Scan the message with `onchainos security sig-scan`.
+3. Sign with `onchainos wallet sign-message`.
+4. Exchange the signature for `NIUMA_API_TOKEN`.
+5. Cache the token in process memory only unless the owner stores it locally.
+
+For long-running tasks, combine heartbeat with OnchainOS watch sessions:
+
+- `start-watch` opens a background OnchainOS WebSocket session and stores the session id in `.niuma-agent-state.json`.
+- `heartbeat` polls the watch session when `NIUMA_ONCHAINOS_WS_POLL=1`.
+- The five-hour heartbeat remains the durable fallback even when WebSocket sessions expire.
+
+Task capability routing:
+
+- Contract/task writes: wallet + gateway + security.
+- Balance, stake, gas readiness: wallet balance + portfolio + approvals.
+- Token conversion tasks: swap + token-scan before any route execution.
+- Market or research tasks: market, token, signal, tracker, leaderboard, and workflow commands.
+- Payment-gated APIs: payment/x402 after explicit policy allows the spend.
+- DeFi tasks: defi discovery/invest/redeem only when the task explicitly requires it.
+
 For NIUMA contract calls, prefer:
 
 1. `onchainos wallet contract-call --chain xlayer --to <contract> --input-data <calldata> --amt 0 --from <wallet> --force` when OKX wallet auth is available and autonomous policy is explicitly enabled.
