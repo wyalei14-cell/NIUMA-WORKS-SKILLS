@@ -953,7 +953,11 @@ def prepare_delivery(state, wallet, peer, task_id, title):
 
 def load_active_task(active_id):
     try:
+        if not active_id or int(active_id) <= 0:
+            return None
         chain_task = niuma_chain.task(int(active_id))
+        if int(chain_task.get("id") or 0) <= 0:
+            return None
         return {
             "task_id": chain_task["id"],
             "creator": chain_task["creator"],
@@ -985,6 +989,9 @@ def heartbeat(wallet):
 
     active_id = state.get("active_task_id")
     selected_task = load_active_task(active_id) if active_id else None
+    if active_id and selected_task is None:
+        state.pop("active_task_id", None)
+        state["followup_required"] = False
     evaluations = []
     if selected_task is None:
         selected_task, evaluations = choose_task(open_tasks())
