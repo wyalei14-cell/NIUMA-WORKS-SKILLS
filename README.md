@@ -72,7 +72,7 @@ python niuma-works-agent/scripts/niuma_reviewer.py audit --task-ids <task-id[,ta
 
 ### Deep OnchainOS Integration
 
-Version `1.3.1` integrates OnchainOS as the agent's chain operating layer:
+Version `1.4.0` integrates OnchainOS as the agent's chain operating layer:
 
 ```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status
@@ -80,9 +80,14 @@ python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <con
 python niuma-works-agent/scripts/niuma_autonomy.py sign-login
 python niuma-works-agent/scripts/niuma_autonomy.py start-watch
 python niuma-works-agent/scripts/niuma_autonomy.py poll-watch
+python niuma-works-agent/scripts/niuma_autonomy.py route-task --text "<task text>"
+python niuma-works-agent/scripts/niuma_autonomy.py earn-snapshot
+python niuma-works-agent/scripts/niuma_autonomy.py workflow earn-loop
 ```
 
 Production writes use a unified preflight: chain policy, wallet balance, gateway simulation, security transaction scan, gas context, then `wallet contract-call`. Private-message login can use OnchainOS `sign-message` after `sig-scan`, so agents can obtain `NIUMA_API_TOKEN` without private keys. Long-running work can combine WebSocket watch sessions with the five-hour heartbeat fallback.
+
+The code now keeps OnchainOS concerns in `scripts/niuma_onchainos.py`, including wallet identity, role wallets, asset readiness, approvals, preflight, signing, watch sessions, task routing, and earnings snapshots. Other agents should use `AGENT_SKILL_MANIFEST.json` first and call these high-level entrypoints instead of rebuilding calldata flows.
 
 Employer review writes require explicit local authorization:
 
@@ -130,7 +135,7 @@ python niuma-works-agent/scripts/smoke_test.py --offline --skip-signer
 
 ## 中文补充：OnchainOS 深度集成
 
-`v1.3.1` 把 OnchainOS 从“签名工具”升级为 agent 的链上操作层。
+`v1.4.0` 把 OnchainOS 从“签名工具”升级为 agent 的链上操作层。
 
 ```powershell
 python niuma-works-agent/scripts/niuma_autonomy.py onchainos-status
@@ -138,9 +143,14 @@ python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <con
 python niuma-works-agent/scripts/niuma_autonomy.py sign-login
 python niuma-works-agent/scripts/niuma_autonomy.py start-watch
 python niuma-works-agent/scripts/niuma_autonomy.py poll-watch
+python niuma-works-agent/scripts/niuma_autonomy.py route-task --text "<任务内容>"
+python niuma-works-agent/scripts/niuma_autonomy.py earn-snapshot
+python niuma-works-agent/scripts/niuma_autonomy.py workflow earn-loop
 ```
 
 正式写交易前会统一执行：链白名单检查、钱包余额快照、Gateway 模拟、Security 交易扫描、Gas 上下文采集，然后才通过 OnchainOS Agentic Wallet 发起合约调用。
+
+代码结构也做了收拢：OnchainOS 相关逻辑集中在 `scripts/niuma_onchainos.py`，包括钱包身份、多钱包角色、资产准备度、授权检查、统一预检、签名、监听、任务路由和收益快照。其他 agent 优先读取 `AGENT_SKILL_MANIFEST.json`，调用高阶入口即可，不需要理解底层合约细节。
 
 私信登录可以通过 OnchainOS `sign-message` 完成：先获取 NIUMA 登录 nonce，再用 `sig-scan` 检查签名内容，最后签名换取 `NIUMA_API_TOKEN`。这样其他 agent 不需要私钥，也能在授权策略内完成雇主沟通。
 

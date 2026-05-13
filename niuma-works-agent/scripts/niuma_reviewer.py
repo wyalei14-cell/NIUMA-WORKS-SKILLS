@@ -10,6 +10,7 @@ import time
 
 import niuma_api
 import niuma_chain
+import niuma_onchainos as ox
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SKILL_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -152,42 +153,21 @@ def signing_mode(network=None):
 
 
 def onchainos_chain(network=None):
-    configured = os.environ.get("NIUMA_ONCHAINOS_CHAIN")
-    if configured:
-        return configured.strip()
-    return "xlayer" if is_mainnet(network) else "xlayer-testnet"
+    return ox.chain(network)
 
 
 def run_command(cmd, timeout=180):
-    completed = subprocess.run(
-        cmd,
-        cwd=str(ROOT),
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        timeout=timeout,
-    )
+    result = ox.run(cmd, timeout=timeout, cwd=str(ROOT))
     return {
-        "returncode": completed.returncode,
-        "stdout": completed.stdout.strip(),
-        "stderr": completed.stderr.strip(),
+        "returncode": result["returncode"],
+        "stdout": result.get("stdout", "").strip(),
+        "stderr": result.get("stderr", "").strip(),
         "cmd": cmd,
     }
 
 
 def okx_wallet_address():
-    chain = onchainos_chain()
-    for cmd in (
-        ["onchainos", "wallet", "addresses", "--chain", chain],
-        ["onchainos", "wallet", "status"],
-    ):
-        result = run_command(cmd, timeout=30)
-        text = f"{result.get('stdout') or ''}\n{result.get('stderr') or ''}"
-        match = ADDRESS_RE.search(text)
-        if result.get("returncode") == 0 and match:
-            return match.group(0)
-    return None
+    return ox.wallet_address()
 
 
 def signer_address():
@@ -420,51 +400,8 @@ def send_core_tx(action, task_id, data, dry_run):
                 "signerMode": mode,
                 "error": "NIUMA_AGENT_WALLET or OKX OnchainOS wallet session is required",
             }
-        simulation = run_command([
-            "onchainos",
-            "gateway",
-            "simulate",
-            "--from",
-            reviewer,
-            "--to",
-            niuma_chain.CORE,
-            "--data",
-            data,
-            "--chain",
-            onchainos_chain(),
-        ])
-        tx_scan = run_command([
-            "onchainos",
-            "security",
-            "tx-scan",
-            "--from",
-            reviewer,
-            "--to",
-            niuma_chain.CORE,
-            "--data",
-            data,
-            "--value",
-            "0x0",
-            "--chain",
-            onchainos_chain(),
-        ])
-        gas = run_command(["onchainos", "gateway", "gas", "--chain", onchainos_chain()])
-        gas_limit = run_command([
-            "onchainos",
-            "gateway",
-            "gas-limit",
-            "--from",
-            reviewer,
-            "--to",
-            niuma_chain.CORE,
-            "--amount",
-            "0",
-            "--data",
-            data,
-            "--chain",
-            onchainos_chain(),
-        ])
-        preflight_ok = simulation["returncode"] == 0 and tx_scan["returncode"] == 0
+        preflight = ox.preflight(reviewer, niuma_chain.CORE, data, purpose=f"reviewer:{action}")
+        preflight_ok = bool(preflight.get("ok"))
         if dry_run:
             return {
                 "ok": preflight_ok,
@@ -476,12 +413,7 @@ def send_core_tx(action, task_id, data, dry_run):
                 "chain": onchainos_chain(),
                 "to": niuma_chain.CORE,
                 "data": data,
-                "preflight": {
-                    "simulation": simulation,
-                    "txScan": tx_scan,
-                    "gas": gas,
-                    "gasLimit": gas_limit,
-                },
+                "preflight": preflight,
             }
         if not preflight_ok:
             return {
@@ -494,13 +426,8 @@ def send_core_tx(action, task_id, data, dry_run):
                 "chain": onchainos_chain(),
                 "to": niuma_chain.CORE,
                 "data": data,
-                "error": "OnchainOS reviewer preflight failed",
-                "preflight": {
-                    "simulation": simulation,
-                    "txScan": tx_scan,
-                    "gas": gas,
-                    "gasLimit": gas_limit,
-                },
+                "error": preflight.get("blocker", "OnchainOS reviewer preflight failed"),
+                "preflight": preflight,
             }
         cmd = [
             "onchainos",
@@ -530,12 +457,7 @@ def send_core_tx(action, task_id, data, dry_run):
             "chain": onchainos_chain(),
             "to": niuma_chain.CORE,
             "data": data,
-            "preflight": {
-                "simulation": simulation,
-                "txScan": tx_scan,
-                "gas": gas,
-                "gasLimit": gas_limit,
-            },
+            "preflight": preflight,
             "result": result,
         }
 

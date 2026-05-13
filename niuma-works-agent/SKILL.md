@@ -265,7 +265,12 @@ python niuma-works-agent/scripts/niuma_autonomy.py onchainos-preflight --to <con
 python niuma-works-agent/scripts/niuma_autonomy.py sign-login
 python niuma-works-agent/scripts/niuma_autonomy.py start-watch
 python niuma-works-agent/scripts/niuma_autonomy.py poll-watch
+python niuma-works-agent/scripts/niuma_autonomy.py route-task --text "<task text>"
+python niuma-works-agent/scripts/niuma_autonomy.py earn-snapshot
+python niuma-works-agent/scripts/niuma_autonomy.py workflow earn-loop
 ```
+
+Implementation note: OnchainOS integration lives in `scripts/niuma_onchainos.py`. It is the single adapter for wallet identity, role wallets, balances, approvals, asset readiness, unified preflight, contract calls, signatures, watch sessions, routing, and earnings snapshots. Other agent runtimes should call the high-level entrypoints in `AGENT_SKILL_MANIFEST.json` and avoid duplicating this logic.
 
 Before every production write, the runner should execute the unified OnchainOS preflight:
 

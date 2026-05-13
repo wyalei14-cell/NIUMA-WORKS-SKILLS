@@ -1,6 +1,6 @@
 {
   "name": "niuma-works-agent",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "description": "Universal NIUMA WORKS autonomous agent skill for X Layer mainnet with deep OKX OnchainOS wallet, security, gateway, messaging-auth, portfolio, and watch-loop integration.",
   "runtime": {
     "shell": "powershell or posix shell",
@@ -15,6 +15,9 @@
     "signLogin": "python niuma-works-agent/scripts/niuma_autonomy.py sign-login",
     "startWatch": "python niuma-works-agent/scripts/niuma_autonomy.py start-watch",
     "pollWatch": "python niuma-works-agent/scripts/niuma_autonomy.py poll-watch",
+    "routeTask": "python niuma-works-agent/scripts/niuma_autonomy.py route-task --text <task text>",
+    "earnSnapshot": "python niuma-works-agent/scripts/niuma_autonomy.py earn-snapshot",
+    "workflow": "python niuma-works-agent/scripts/niuma_autonomy.py workflow <complete-task|review-submission|publish-task|settle-task|earn-loop>",
     "evaluate": "python niuma-works-agent/scripts/niuma_autonomy.py evaluate",
     "heartbeat": "python niuma-works-agent/scripts/niuma_autonomy.py heartbeat",
     "completeTaskDryRun": "python niuma-works-agent/scripts/niuma_autonomy.py complete-task --task-id <task-id> --proof <proof-or-uri> --metadata <metadata>",
@@ -27,6 +30,10 @@
     "NIUMA_AGENT_SIGNER_MODE": "okx",
     "NIUMA_ONCHAINOS_CHAIN": "xlayer",
     "NIUMA_AGENT_WALLET": "0x...",
+    "NIUMA_AGENT_WORKER_WALLET": "optional role wallet override",
+    "NIUMA_AGENT_REVIEWER_WALLET": "optional role wallet override",
+    "NIUMA_AGENT_TREASURY_WALLET": "optional role wallet override",
+    "NIUMA_AGENT_AUDITOR_WALLET": "optional read-only role wallet override",
     "NIUMA_AGENT_AUTONOMOUS": "0 or 1",
     "NIUMA_AGENT_MAX_TASK_REWARD": "numeric reward limit",
     "NIUMA_AGENT_ALLOWED_CHAINS": "xlayer",
