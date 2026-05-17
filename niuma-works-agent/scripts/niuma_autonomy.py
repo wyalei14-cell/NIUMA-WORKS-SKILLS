@@ -81,6 +81,16 @@ DEFAULT_CAPABILITIES = {
     "testing",
 }
 
+SOCIAL_CAPABILITIES = {
+    "social",
+    "twitter",
+    "x",
+    "telegram",
+    "screenshot",
+    "browser",
+    "community",
+}
+
 INDEPENDENT_KEYWORDS = {
     "合约": ("smart-contract", 35),
     "contract": ("smart-contract", 25),
@@ -98,14 +108,18 @@ INDEPENDENT_KEYWORDS = {
 }
 
 HUMAN_OR_EXTERNAL_KEYWORDS = {
-    "截图": "requires external account or screenshot evidence",
-    "推特": "requires social account action",
-    "twitter": "requires social account action",
-    "关注": "requires social follow action",
-    "转发": "requires social repost action",
-    "tg": "requires Telegram identity or action",
-    "telegram": "requires Telegram identity or action",
-    "一键三连": "requires social engagement action",
+    "截图": ("screenshot", 5, "requires screenshot proof capability"),
+    "推特": ("twitter", 20, "requires Twitter/X capability"),
+    "twitter": ("twitter", 20, "requires Twitter/X capability"),
+    "x.com": ("twitter", 20, "requires Twitter/X capability"),
+    "关注": ("twitter", 15, "requires Twitter/X follow capability"),
+    "转发": ("twitter", 15, "requires Twitter/X repost capability"),
+    "点赞": ("twitter", 10, "requires Twitter/X like capability"),
+    "评论": ("twitter", 10, "requires Twitter/X comment capability"),
+    "tg": ("telegram", 20, "requires Telegram capability"),
+    "telegram": ("telegram", 20, "requires Telegram capability"),
+    "电报": ("telegram", 20, "requires Telegram capability"),
+    "一键三连": ("social", 20, "requires social engagement capability"),
 }
 
 UNCLEAR_KEYWORDS = {
@@ -260,6 +274,19 @@ def capabilities():
     if not raw:
         return set(DEFAULT_CAPABILITIES)
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
+
+
+def has_capability(caps, required):
+    required = (required or "").lower()
+    if required in caps:
+        return True
+    if required in {"twitter", "telegram", "screenshot"} and "social" in caps:
+        return True
+    if required in {"twitter", "telegram", "social"} and "community" in caps:
+        return True
+    if required == "screenshot" and ({"browser", "testing"} & caps):
+        return True
+    return False
 
 
 def run(cmd, timeout=90):
@@ -463,10 +490,17 @@ def evaluate_task(task, symbols=None):
                 score -= 15
                 blockers.append(f"missing capability: {cap}")
 
-    for word, reason in HUMAN_OR_EXTERNAL_KEYWORDS.items():
+    social_requirements = []
+    for word, (required_capability, points, note) in HUMAN_OR_EXTERNAL_KEYWORDS.items():
         if word.lower() in text:
-            score -= 35
-            blockers.append(reason)
+            matched.append(required_capability)
+            social_requirements.append({"capability": required_capability, "note": note})
+            if has_capability(caps, required_capability):
+                score += points
+                reasons.append(f"matches capability: {required_capability}")
+            else:
+                score -= 15
+                blockers.append(f"missing capability: {required_capability}")
 
     collaboration = []
     for word, role in COLLABORATION_KEYWORDS.items():
@@ -484,11 +518,21 @@ def evaluate_task(task, symbols=None):
         score -= 100
         blockers.append(f"token not allowed by policy: {symbol}")
 
+    blockers = sorted(set(blockers))
+    reasons = sorted(set(reasons))
+    social_requirements = [
+        dict(item)
+        for item in {
+            (entry["capability"], entry["note"]): entry
+            for entry in social_requirements
+        }.values()
+    ]
+
     if not clarity["clear"]:
         action = "clarify"
     elif score >= 70 and not blockers:
         action = "accept"
-    elif score >= 55 and not any("requires social" in item for item in blockers):
+    elif score >= 55 and not blockers:
         action = "message-first"
     elif collaboration and score >= 35:
         action = "collaborate"
@@ -506,6 +550,7 @@ def evaluate_task(task, symbols=None):
         "action": action,
         "clarity": clarity,
         "capabilities": sorted(set(matched)),
+        "socialRequirements": social_requirements,
         "blockers": blockers,
         "reasons": reasons,
         "collaborationRoles": sorted(set(collaboration)),

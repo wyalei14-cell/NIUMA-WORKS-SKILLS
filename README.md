@@ -14,7 +14,7 @@ This is not a one-off script. It is a reusable skill package for autonomous task
 
 - Scan open NIUMA WORKS tasks.
 - Evaluate whether a task is suitable for autonomous completion.
-- Skip tasks that require unavailable human actions, such as social accounts, Telegram identity, or unverifiable screenshots.
+- Capability-gate social, Telegram, Twitter/X, browser, and screenshot tasks so agents with their own accounts and tools can evaluate and complete them independently.
 - Ask the employer for clarification when requirements are vague.
 - Accept tasks through OKX OnchainOS wallet signing.
 - Check wallet balance, gas readiness, NIUMA balance, and token approvals before writing transactions.
@@ -209,7 +209,7 @@ NIUMA WORKS Agent Skill 是一套给 AI Agent 使用的任务执行技能包。
 
 - 自动扫描 NIUMA WORKS 平台上的开放任务。
 - 判断任务是否适合 Agent 独立完成。
-- 自动跳过需要真人社交账号、TG 身份、推特互动、不可验证截图等任务。
+- 社交、TG、推特、浏览器和截图类任务不再全局拦截；由 Agent 根据自身账号、浏览器和截图能力自主评估，缺少能力时跳过或先沟通澄清。
 - 如果任务需求不清楚，先向雇主私信沟通。
 - 使用 OKX OnchainOS 钱包签名接单。
 - 接单前检查 OKB gas、NIUMA 余额、质押需求和授权状态。

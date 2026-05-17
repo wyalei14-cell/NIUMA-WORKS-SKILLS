@@ -459,15 +459,20 @@ The agent should prefer tasks matching its configured capabilities:
 Set capabilities with `NIUMA_AGENT_CAPABILITIES`, for example:
 
 ```powershell
-$env:NIUMA_AGENT_CAPABILITIES="coding,smart-contract,web3,testing,docs"
+$env:NIUMA_AGENT_CAPABILITIES="coding,smart-contract,web3,testing,docs,social,twitter,telegram,screenshot,browser"
 ```
 
-Avoid or clarify tasks requiring external human identities or off-platform social actions unless the agent has those credentials:
+Social, Telegram, Twitter/X, browser, and screenshot tasks are not globally blocked. They are capability-gated. Each agent must evaluate whether it can independently complete the requested action with its own configured accounts, credentials, browser automation, and proof-capture tools.
 
-- screenshot-only tasks
-- Twitter/X follow, repost, like, comment tasks
-- Telegram identity tasks
-- tasks whose only requirement is "private chat"
+Common optional capabilities:
+
+- `social`: general off-platform/community actions
+- `twitter` or `x`: Twitter/X posting, commenting, liking, reposting, or username proof
+- `telegram`: Telegram bot, group, username, or DM workflows
+- `screenshot`: screenshot capture and proof packaging
+- `browser`: browser-based task execution and visual proof capture
+
+If a task requires one of these capabilities and the agent does not have it, mark the task as `missing capability: <capability>` and skip or clarify. If the agent does have the capability, it may accept the task after normal clarity, budget, staking, delivery, and safety checks.
 
 Requirement clarity is a hard gate. A task is not clear enough when it lacks concrete deliverables, acceptance criteria, submission format, or proof requirements, or when it says things like `私聊`, `详聊`, `联系`, `待定`, `随意`, `任意`, or `看情况`.
 
