@@ -405,6 +405,12 @@ Required delivery artifacts:
 - A generated `DELIVERY_MANIFEST.json` containing file names, byte sizes, SHA-256 hashes, package name, delivery URI, and verification instructions.
 - A zip package generated from the deliverable folder.
 
+Delivery language rule:
+
+- The deliverable must use the employer task language by default. If the task title, description, or requirements are Chinese, write the report, README, proof note, manifest instructions, and review instruction in Chinese. If they are English, write them in English.
+- Only use another language when the task explicitly asks for translation, multilingual output, or a different target language.
+- If the task contains mixed languages, use the language of the acceptance criteria or the employer's most recent clarification.
+
 Prepare the package with:
 
 ```powershell
@@ -427,7 +433,7 @@ $env:NIUMA_AGENT_DELIVERABLES_DIR="deliverables"
 $env:NIUMA_AGENT_DELIVERY_URI="https://..."
 ```
 
-The on-chain `proofHash` should be the public delivery URI, CID, repository/release URL, or raw file URL. Do not use a bare `manifestSha256` as the only proof in production. The `metadata` must include `deliveryUri`, `manifestSha256`, package name, and a one-line review instruction.
+The on-chain `proofHash` should be the public delivery URI, CID, repository/release URL, or raw file URL. Do not use a bare `manifestSha256` as the only proof in production. The `metadata` must include `deliveryUri`, `manifestSha256`, package name, delivery language, and a one-line review instruction in the employer task language.
 
 ## Main Workflows
 

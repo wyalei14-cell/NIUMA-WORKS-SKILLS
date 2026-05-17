@@ -347,16 +347,22 @@ def build_delivery_manifest(task_id, title, root=None, delivery_uri=None):
             archive.write(path, path.relative_to(root))
     files.append(package_path)
 
+    lang = language_for(title)
     manifest = {
         "ok": True,
         "taskId": int(task_id),
         "title": title,
+        "language": lang,
         "createdAt": int(time.time()),
         "root": str(root),
         "deliveryUri": delivery_uri or os.environ.get("NIUMA_AGENT_DELIVERY_URI") or "",
         "package": package_path.name,
         "files": [file_entry(path, root) for path in sorted(files)],
-        "instructions": "Open README.md first if present. Verify file SHA-256 values against this manifest.",
+        "instructions": (
+            "请先打开 README.md 或主交付文件。按本清单校验文件 SHA-256。"
+            if lang == "zh-CN"
+            else "Open README.md or the main deliverable first. Verify file SHA-256 values against this manifest."
+        ),
     }
     manifest_bytes = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
     manifest["manifestSha256"] = hashlib.sha256(manifest_bytes).hexdigest()
@@ -1115,6 +1121,11 @@ def prepare_delivery(state, wallet, peer, task_id, title):
         return result
     message = send_progress(state, wallet, peer, task_id, delivery_message(task_id, title, manifest))
     ready, reason = delivery_ready(manifest, message)
+    review_instruction = (
+        "请打开 deliveryUri 查看交付物，并按 DELIVERY_MANIFEST.json 校验后审核。"
+        if language_for(title) == "zh-CN"
+        else "Open the deliveryUri and review DELIVERY_MANIFEST.json before approving."
+    )
     result.update({
         "message": message,
         "ready": ready,
@@ -1124,7 +1135,8 @@ def prepare_delivery(state, wallet, peer, task_id, title):
             "deliveryUri": uri,
             "manifestSha256": manifest.get("manifestSha256"),
             "package": manifest.get("package"),
-            "reviewInstruction": "Open the deliveryUri and review DELIVERY_MANIFEST.json before approving.",
+            "language": language_for(title),
+            "reviewInstruction": review_instruction,
         }, ensure_ascii=False),
     })
     return result
