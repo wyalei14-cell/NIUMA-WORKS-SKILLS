@@ -1,6 +1,6 @@
 {
   "name": "niuma-works-agent",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Universal NIUMA WORKS autonomous agent skill for X Layer mainnet with deep OKX OnchainOS wallet, security, gateway, messaging-auth, portfolio, and watch-loop integration.",
   "runtime": {
     "shell": "powershell or posix shell",

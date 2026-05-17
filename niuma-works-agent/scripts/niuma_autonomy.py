@@ -334,11 +334,14 @@ def build_delivery_manifest(task_id, title, root=None, delivery_uri=None):
     root = Path(root or deliverable_dir(task_id))
     if not root.exists():
         return {"ok": False, "reason": f"deliverable path does not exist: {root}", "root": str(root)}
-    files = [path for path in root.rglob("*") if path.is_file() and path.name not in {"DELIVERY_MANIFEST.json"}]
+    package_path = root / f"task-{task_id}-delivery.zip"
+    files = [
+        path for path in root.rglob("*")
+        if path.is_file() and path.name not in {"DELIVERY_MANIFEST.json", package_path.name}
+    ]
     if not files:
         return {"ok": False, "reason": f"deliverable path has no files: {root}", "root": str(root)}
 
-    package_path = root / f"task-{task_id}-delivery.zip"
     with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in files:
             archive.write(path, path.relative_to(root))
@@ -387,11 +390,26 @@ def delivery_ready(manifest, message_result):
         return False, manifest.get("reason", "delivery manifest failed")
     if manifest.get("deliveryUri"):
         return True, "delivery URI is available"
-    if message_result.get("sent"):
-        return True, "delivery details sent by private message"
     if os.environ.get("NIUMA_AGENT_ALLOW_UNSENT_DELIVERY") == "1":
         return True, "test override allows local/outbox delivery"
-    return False, "no public delivery URI and private delivery message was not sent"
+    return False, "no public delivery URI; on-chain proof must contain an employer-accessible delivery link"
+
+
+def public_delivery_reference(value):
+    text = str(value or "").strip().lower()
+    return text.startswith(("http://", "https://", "ipfs://", "ar://", "bzz://"))
+
+
+def metadata_delivery_uri(metadata):
+    if not metadata:
+        return ""
+    try:
+        payload = json.loads(metadata)
+    except (TypeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("deliveryUri") or payload.get("deliveryURL") or payload.get("url") or "")
 
 
 def token_symbols():
@@ -933,6 +951,14 @@ def accept_task(state, wallet, chain_task):
 
 
 def submit_task(wallet, task_id, proof, metadata):
+    delivery_uri = metadata_delivery_uri(metadata)
+    if not public_delivery_reference(proof) and not public_delivery_reference(delivery_uri):
+        return {
+            "proof": proof,
+            "metadata": metadata,
+            "wrote": False,
+            "nextAction": "Proof submission blocked: proofHash or metadata.deliveryUri must be a public employer-accessible delivery URL/CID.",
+        }
     data = niuma_chain.calldata_submit(task_id, proof, metadata)
     preflight = onchainos_preflight(wallet, CORE, data, purpose="submitProof")
     result = {"proof": proof, "metadata": metadata, "calldata": data, "onchainosPreflight": preflight, "wrote": False}
@@ -1098,6 +1124,7 @@ def prepare_delivery(state, wallet, peer, task_id, title):
             "deliveryUri": uri,
             "manifestSha256": manifest.get("manifestSha256"),
             "package": manifest.get("package"),
+            "reviewInstruction": "Open the deliveryUri and review DELIVERY_MANIFEST.json before approving.",
         }, ensure_ascii=False),
     })
     return result
@@ -1140,7 +1167,68 @@ def heartbeat(wallet):
         save_state(state)
         return status
 
+    submitted_followups = []
+    state.setdefault("submitted_followup_ids", [])
+    remaining_submitted = []
+    for submitted_id in state.get("submitted_followup_ids", []):
+        try:
+            submitted_chain_task = niuma_chain.task(int(submitted_id))
+            submitted_state = state["tasks"].setdefault(str(submitted_id), {"phase": "submitted"})
+            if int(submitted_chain_task.get("status", 0)) == 4:
+                submitted_state["phase"] = "completed"
+                submitted_state["completedAt"] = submitted_chain_task.get("completedAt")
+                submitted_state["lockedStake"] = 0
+                submitted_followups.append({"taskId": int(submitted_id), "status": "completed"})
+            else:
+                remaining_submitted.append(int(submitted_id))
+                submitted_followups.append({
+                    "taskId": int(submitted_id),
+                    "status": submitted_state.get("phase", "submitted"),
+                    "nextAction": "Waiting for employer review; non-blocking for new work.",
+                    "proof": submitted_state.get("proof", ""),
+                })
+        except Exception as exc:
+            submitted_followups.append({"taskId": submitted_id, "status": "followup-error", "reason": str(exc)})
+    state["submitted_followup_ids"] = sorted(set(remaining_submitted))
+
     active_id = state.get("active_task_id")
+    active_followup = None
+    active_phase = str(state.get("tasks", {}).get(str(active_id), {}).get("phase") or "") if active_id else ""
+    if active_id and active_phase == "submitted":
+        active_chain_task = niuma_chain.task(int(active_id))
+        active_state = state["tasks"].setdefault(str(active_id), {"phase": "submitted"})
+        if int(active_chain_task.get("status", 0)) == 4:
+            active_state["phase"] = "completed"
+            active_state["completedAt"] = active_chain_task.get("completedAt")
+            active_state["lockedStake"] = 0
+            active_followup = {
+                "taskId": int(active_id),
+                "status": "completed",
+                "message": "Submitted task was completed before scanning new work.",
+            }
+        else:
+            content = progress_text(
+                int(active_id),
+                active_chain_task["title"],
+                "submitted",
+                "等待雇主验收或链上索引确认；该任务不阻塞继续扫描新任务。",
+                active_state.get("proof", ""),
+            )
+            active_followup = {
+                "taskId": int(active_id),
+                "status": "submitted",
+                "message": send_progress(state, wallet, active_chain_task["creator"], int(active_id), content),
+                "nextAction": "Continue checking this submitted task on future heartbeats while scanning for new work.",
+            }
+            submitted_followups.append(active_followup)
+            state["submitted_followup_ids"] = sorted(set(state.get("submitted_followup_ids", []) + [int(active_id)]))
+        state.pop("active_task_id", None)
+        state["followup_required"] = any(
+            str(item.get("phase") or "") in {"accepted", "working", "submit-preflight", "delivery-blocked", "clarifying", "collaboration-planning", "submitted"}
+            for item in state.get("tasks", {}).values()
+        )
+        active_id = None
+
     selected_task = load_active_task(active_id) if active_id else None
     if active_id and selected_task is None:
         state.pop("active_task_id", None)
@@ -1151,6 +1239,10 @@ def heartbeat(wallet):
 
     if not selected_task:
         status = {"status": "idle", "evaluations": evaluations, "message": "No suitable open task found."}
+        if active_followup:
+            status["activeFollowup"] = active_followup
+        if submitted_followups:
+            status["submittedFollowups"] = submitted_followups
         state["last_status"] = status
         save_state(state)
         return status
@@ -1172,6 +1264,10 @@ def heartbeat(wallet):
         "phase": task_state.get("phase"),
         "autonomous": is_autonomous(),
     }
+    if active_followup:
+        status["activeFollowup"] = active_followup
+    if submitted_followups:
+        status["submittedFollowups"] = submitted_followups
     if state.get("onchainos", {}).get("wsSessionId") and os.environ.get("NIUMA_ONCHAINOS_WS_POLL", "1") != "0":
         status["onchainosEvents"] = poll_onchainos_watch()
 

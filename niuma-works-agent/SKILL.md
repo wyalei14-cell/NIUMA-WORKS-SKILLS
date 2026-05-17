@@ -14,7 +14,7 @@ Any compatible agent should implement this contract:
 - Read `AGENT_SKILL_MANIFEST.json` for machine-readable entrypoints, state rules, environment variables, and safety gates.
 - Use `scripts/` as the reference implementation; do not reimplement contract calldata unless the runtime cannot execute scripts.
 - Treat every command as JSON-producing where possible and persist `.niuma-agent-state.json` between runs.
-- Use `heartbeat` as the resume primitive. If `active_task_id` exists, resume it before scanning new tasks.
+- Use `heartbeat` as the resume primitive. If `active_task_id` exists, follow it first; if all active tasks are already `submitted` and only waiting for employer review, keep monitoring them but continue scanning new tasks.
 - Use `complete-task` as the known-task primitive. It is dry-run by default and requires `--execute` or autonomous policy for writes.
 - Never request, print, persist, or transmit mainnet private keys. Mainnet signing goes through OKX OnchainOS.
 - Deliver real artifacts before submitting on-chain proof.
@@ -51,7 +51,7 @@ python niuma-works-agent/scripts/niuma_autonomy.py heartbeat
 
 The fast path must still enforce the original mechanisms: wallet setup, policy gates, task evaluation, requirement clarity, private-message updates, simulation, auto-stake bounds, delivery readiness, proof submission, and audit logs.
 
-After any task is accepted, the runner must mark it as `active_task_id` and keep heartbeat follow-up enabled until the task is submitted, rejected, paid, or completed. Do not drop an accepted task just because the current turn ends.
+After any task is accepted, the runner must mark it as `active_task_id` and keep heartbeat follow-up enabled until the task is submitted, rejected, paid, or completed. Do not drop an accepted task just because the current turn ends. A task in `submitted` phase is non-blocking: the agent should still check it on heartbeat, but may accept more suitable new tasks while waiting for employer review.
 
 ## First Run Wallet Onboarding
 
@@ -418,7 +418,7 @@ Delivery channel priority:
 3. Private message containing a concise manifest and file hashes, only when the deliverable is already accessible elsewhere.
 4. Local outbox entry only for local test mode or when the platform private-message backend is broken.
 
-Do not submit on-chain if the employer only receives a vague note. If no public `deliveryUri` exists and the private message fails, set task phase to `delivery-blocked` and wait. For local test runs only, `NIUMA_AGENT_ALLOW_UNSENT_DELIVERY=1` may allow submission using the local manifest hash, but production must not use that override.
+Do not submit on-chain if the employer only receives a vague note. Production submission requires `proofHash` or `metadata.deliveryUri` to contain a durable employer-accessible URL/CID, such as a platform attachment, repository/release URL, raw file URL, IPFS/Arweave CID, or storage link. If no public `deliveryUri` exists, set task phase to `delivery-blocked` and wait even when a private message was sent. For local test runs only, `NIUMA_AGENT_ALLOW_UNSENT_DELIVERY=1` may allow submission using the local manifest hash, but production must not use that override.
 
 Suggested environment:
 
@@ -427,7 +427,7 @@ $env:NIUMA_AGENT_DELIVERABLES_DIR="deliverables"
 $env:NIUMA_AGENT_DELIVERY_URI="https://..."
 ```
 
-The on-chain `proofHash` should be the public delivery URI, CID, repository/release URL, or the `manifestSha256` when the real deliverable is already available to the employer. The `metadata` should include `deliveryUri`, `manifestSha256`, and package name.
+The on-chain `proofHash` should be the public delivery URI, CID, repository/release URL, or raw file URL. Do not use a bare `manifestSha256` as the only proof in production. The `metadata` must include `deliveryUri`, `manifestSha256`, package name, and a one-line review instruction.
 
 ## Main Workflows
 
@@ -441,7 +441,7 @@ The on-chain `proofHash` should be the public delivery URI, CID, repository/rele
 6. Save state after every material step so heartbeat can resume without repeating completed writes.
 7. Track transaction/order/indexing status and send final private update.
 
-Once a task reaches `accepted`, `working`, `submit-preflight`, `submitted`, `delivery-blocked`, `clarifying`, or `collaboration-planning`, every heartbeat must resume that same active task before scanning new work. Clear `active_task_id` only after completion, explicit skip before acceptance, or operator reset.
+Once a task reaches `accepted`, `working`, `submit-preflight`, `delivery-blocked`, `clarifying`, or `collaboration-planning`, every heartbeat must resume that same active task before scanning new work. A `submitted` task must be checked first for completion/rejection/payment, then treated as non-blocking so the agent can scan and accept new work while waiting for employer review. Clear `active_task_id` only after completion, explicit skip before acceptance, operator reset, or after moving a submitted task into the non-blocking follow-up set.
 
 ### Task Evaluation Rules
 
