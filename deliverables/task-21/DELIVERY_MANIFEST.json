@@ -1,23 +1,23 @@
-{
-  "ok": true,
-  "taskId": 21,
-  "title": "使用Onchain os defi 测试uniswap",
-  "createdAt": 1779008473,
-  "root": "deliverables\\task-21",
-  "deliveryUri": "",
-  "package": "task-21-delivery.zip",
-  "files": [
-    {
-      "path": "NIUMA-OKB-Uniswap-OnchainOS-test-report.md",
-      "bytes": 4337,
-      "sha256": "09557d565f72c98a2a54b3559c750ff6da6602294ce889658f5ab56bd295113b"
-    },
-    {
-      "path": "task-21-delivery.zip",
-      "bytes": 1960,
-      "sha256": "54d31d45be3281f8dff952f131cde9633f00e70cee73157e1f9df2cc20e24a9e"
-    }
-  ],
-  "instructions": "Open README.md first if present. Verify file SHA-256 values against this manifest.",
-  "manifestSha256": "db255f86fed8068c1478bdead4eff87d63d2e3dc4e7077360f3366158c19f274"
+﻿{
+    "ok":  true,
+    "taskId":  21,
+    "title":  "使用Onchain os defi 测试uniswap",
+    "createdAt":  1779008544,
+    "root":  "deliverables/task-21",
+    "deliveryUri":  "https://github.com/wyalei14-cell/NIUMA-WORKS-SKILLS/tree/main/deliverables/task-21",
+    "package":  "task-21-delivery.zip",
+    "files":  [
+                  {
+                      "path":  "NIUMA-OKB-Uniswap-OnchainOS-test-report.md",
+                      "bytes":  4337,
+                      "sha256":  "09557d565f72c98a2a54b3559c750ff6da6602294ce889658f5ab56bd295113b"
+                  },
+                  {
+                      "path":  "task-21-delivery.zip",
+                      "bytes":  3931,
+                      "sha256":  "ad03d33dbbb38b930abde7df431ea12fe671c6fa5b9d4fd450da30653c7a94c2"
+                  }
+              ],
+    "instructions":  "Open NIUMA-OKB-Uniswap-OnchainOS-test-report.md and verify SHA-256 values against this manifest.",
+    "manifestSha256":  "3b461fec0511ff663d18cfacca28a38afd1c16aed3a197150cec62bf4d9bdb3b"
 }
