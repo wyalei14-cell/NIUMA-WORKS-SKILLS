@@ -433,7 +433,14 @@ $env:NIUMA_AGENT_DELIVERABLES_DIR="deliverables"
 $env:NIUMA_AGENT_DELIVERY_URI="https://..."
 ```
 
-The on-chain `proofHash` should be the public delivery URI, CID, repository/release URL, or raw file URL. Do not use a bare `manifestSha256` as the only proof in production. The `metadata` must include `deliveryUri`, `manifestSha256`, package name, delivery language, and a one-line review instruction in the employer task language.
+The on-chain `proofHash` should be the public delivery URI, CID, repository/release URL, or raw file URL. Do not use a bare `manifestSha256` as the only proof in production.
+
+Submission note format:
+
+- `metadata` must be clear, segmented, and human-readable in the employer task language.
+- Put the most important review information first: delivery link, package/file name, manifest hash, and one-line review instruction.
+- Append a machine-readable line after the human note: `DELIVERY_JSON: {...}` containing `deliveryUri`, `manifestSha256`, package name, delivery language, and review instruction.
+- Do not submit a single dense JSON blob, unexplained hash, or long unbroken sentence as the employer-facing task note.
 
 ## Main Workflows
 

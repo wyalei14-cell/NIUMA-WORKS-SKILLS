@@ -409,13 +409,57 @@ def public_delivery_reference(value):
 def metadata_delivery_uri(metadata):
     if not metadata:
         return ""
+    text = str(metadata or "")
     try:
-        payload = json.loads(metadata)
+        payload = json.loads(text)
     except (TypeError, json.JSONDecodeError):
-        return ""
+        marker = "DELIVERY_JSON:"
+        if marker not in text:
+            return ""
+        try:
+            payload = json.loads(text.split(marker, 1)[1].strip())
+        except (TypeError, json.JSONDecodeError):
+            return ""
     if not isinstance(payload, dict):
         return ""
     return str(payload.get("deliveryUri") or payload.get("deliveryURL") or payload.get("url") or "")
+
+
+def delivery_metadata_text(task_id, title, manifest, uri):
+    lang = language_for(title)
+    payload = {
+        "deliveryUri": uri,
+        "manifestSha256": manifest.get("manifestSha256"),
+        "package": manifest.get("package"),
+        "language": lang,
+        "reviewInstruction": (
+            "请打开 deliveryUri 查看交付物，并按 DELIVERY_MANIFEST.json 校验后审核。"
+            if lang == "zh-CN"
+            else "Open the deliveryUri and review DELIVERY_MANIFEST.json before approving."
+        ),
+    }
+    payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    if lang == "zh-CN":
+        return "\n".join([
+            f"任务 #{task_id} 交付说明",
+            "",
+            f"1. 交付链接：{uri}",
+            f"2. 交付包：{manifest.get('package')}",
+            f"3. 清单哈希：{manifest.get('manifestSha256')}",
+            "4. 审核方式：打开交付链接查看内容，并按 DELIVERY_MANIFEST.json 校验文件。",
+            "",
+            f"DELIVERY_JSON: {payload_json}",
+        ])
+    return "\n".join([
+        f"Task #{task_id} delivery note",
+        "",
+        f"1. Delivery link: {uri}",
+        f"2. Package: {manifest.get('package')}",
+        f"3. Manifest hash: {manifest.get('manifestSha256')}",
+        "4. Review: open the delivery link and verify files against DELIVERY_MANIFEST.json.",
+        "",
+        f"DELIVERY_JSON: {payload_json}",
+    ])
 
 
 def token_symbols():
@@ -1121,23 +1165,12 @@ def prepare_delivery(state, wallet, peer, task_id, title):
         return result
     message = send_progress(state, wallet, peer, task_id, delivery_message(task_id, title, manifest))
     ready, reason = delivery_ready(manifest, message)
-    review_instruction = (
-        "请打开 deliveryUri 查看交付物，并按 DELIVERY_MANIFEST.json 校验后审核。"
-        if language_for(title) == "zh-CN"
-        else "Open the deliveryUri and review DELIVERY_MANIFEST.json before approving."
-    )
     result.update({
         "message": message,
         "ready": ready,
         "reason": reason,
         "proof": uri or manifest.get("manifestSha256"),
-        "metadata": json.dumps({
-            "deliveryUri": uri,
-            "manifestSha256": manifest.get("manifestSha256"),
-            "package": manifest.get("package"),
-            "language": language_for(title),
-            "reviewInstruction": review_instruction,
-        }, ensure_ascii=False),
+        "metadata": delivery_metadata_text(task_id, title, manifest, uri),
     })
     return result
 
